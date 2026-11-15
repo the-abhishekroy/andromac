@@ -97,12 +97,15 @@ final class AppModel: ObservableObject {
     private let tunnel = TunnelManager()
     private var iconPNG: [String: Data] = [:]
     // phone files (WebDAV through the private network, mounted in Finder as "Phone")
+    /// Mount the phone's storage in Finder by itself whenever the phone connects (and sharing is on).
+    @Published var autoMountPhone: Bool { didSet { UserDefaults.standard.set(autoMountPhone, forKey: "autoMountPhone"); if autoMountPhone { mountPhoneFiles(open: false) } } }
     @Published var phoneFilesEnabled = false
     @Published var phoneFilesWritable = false
     @Published var phoneFilesNeedsPermission = false
     @Published var phoneFilesMounted = false
     @Published var phoneFilesMessage: String?
     private var nameProc: Process?
+    private var mountingPhone = false
     private var phoneTailIP: String?
     private var cursorTimer: Timer?
     private var lastCursor = CGPoint(x: -1, y: -1)
@@ -131,13 +134,14 @@ final class AppModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: ["skipRunning": true, "nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
+        d.register(defaults: ["autoMountPhone": true, "skipRunning": true, "nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
         let first = d.bool(forKey: "firstRun")
         syncClipboard = d.bool(forKey: "syncClip")
         terminalAccess = d.bool(forKey: "termOn")
         keepAwake = d.bool(forKey: "keepAwake")
         nativeBanners = d.bool(forKey: "nativeBanners")
         skipRunningApps = d.bool(forKey: "skipRunning")
+        autoMountPhone = d.bool(forKey: "autoMountPhone")
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
@@ -151,7 +155,7 @@ final class AppModel: ObservableObject {
         }
         server.onMessage = { [weak self] t, data in DispatchQueue.main.async { self?.handle(t, data) } }
         server.onConnect = { [weak self] in DispatchQueue.main.async { self?.connected = true; self?.hasConnectedBefore = true; if self?.syncClipboard == true { self?.sendClipSync() } } }
-        server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil; self?.ejectPhoneDriveIfMounted() } }
+        server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil; self?.phoneFilesEnabled = false; self?.ejectPhoneDriveIfMounted() } }
         do { try server.start() } catch { log("server failed: \(error)") }
         tunnel.onState = { [weak self] state, detail in self?.tunnelEvent(state, detail) }
         tunnel.forwardSSH = terminalAccess
@@ -488,44 +492,74 @@ final class AppModel: ObservableObject {
     }
 
     private func applyFilesState(_ f: [String: Any]) {
+        let wasEnabled = phoneFilesEnabled
         phoneFilesEnabled = (f["enabled"] as? Bool) ?? false
+        if phoneFilesEnabled && !wasEnabled && autoMountPhone { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.mountPhoneFiles(open: false) } }
         phoneFilesWritable = (f["write"] as? Bool) ?? false
         phoneFilesNeedsPermission = (f["needsPermission"] as? Bool) ?? false
         if !phoneFilesEnabled { phoneFilesMounted = false }
     }
 
     /// Open the phone's storage in Finder as the drive "Phone".
-    func mountPhoneFiles() {
-        guard let ip = phoneTailIP else { phoneFilesMessage = "Connect your phone first."; return }
+    /// Mount the phone's storage as the drive "Phone". `open` = also show it in Finder (true for a click, false for the automatic mount).
+    func mountPhoneFiles(open: Bool = true) {
+        guard let ip = phoneTailIP else { if open { phoneFilesMessage = "Connect your phone first." }; return }
         guard phoneFilesEnabled else {
-            phoneFilesMessage = phoneFilesNeedsPermission ? "On the phone: Settings, Files on your Mac, Allow all files access."
-                                                          : "On the phone: Settings, Files on your Mac, turn on Share this phone's files."
+            if open { phoneFilesMessage = phoneFilesNeedsPermission ? "On the phone: Settings, Files on your Mac, Allow all files access."
+                                                                    : "On the phone: Settings, Files on your Mac, turn on Share this phone's files." }
             return
         }
+        guard !mountingPhone, !phoneFilesMounted else { if open, phoneFilesMounted { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }; return }
+        mountingPhone = true
         tunnel.send("proxy 8790 \(ip):8790")              // Mac 127.0.0.1:8790 -> phone file server, through the private network
         phoneFilesMessage = "Mounting…"
         let pw = davPassword(secret: secret)
-        // Finder labels a network drive with the host name it connected to. Register "phone.local" (pointing at this Mac's own
-        // tunnel doorway) with Bonjour so the drive is called "Phone" in the sidebar, and keep that registration alive while mounted.
+        // Finder labels a network drive with the host name it connected to. Register "Phone.local" (pointing at this Mac's own
+        // tunnel doorway) with Bonjour so the drive is called Phone, and keep that registration alive while mounted.
         if nameProc?.isRunning != true {
             let n = Process(); n.executableURL = URL(fileURLWithPath: "/usr/bin/dns-sd")
             n.arguments = ["-P", "Phone", "_http._tcp", "local", "8790", "Phone.local", "127.0.0.1"]
             n.standardOutput = Pipe(); n.standardError = Pipe(); try? n.run(); nameProc = n
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            let script = "mount volume \"http://Phone.local:8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
-            let p = Process(), err = Pipe()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-e", script]
-            p.standardError = err; p.standardOutput = Pipe()
-            try? p.run(); p.waitUntilExit()
-            let ok = p.terminationStatus == 0
-            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        DispatchQueue.global().async { [weak self] in
+            // wait until the name resolves and the doorway to the phone is open; mounting earlier gives "problem connecting to the server"
+            var ready = false
+            for _ in 0..<40 {
+                if Self.nameResolves("Phone.local") && Self.portOpen(8790) { ready = true; break }
+                usleep(300_000)
+            }
+            var ok = false, msg = ""
+            if ready {
+                for attempt in 0..<2 where !ok {
+                    let script = "mount volume \"http://Phone.local:8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
+                    let p = Process(), err = Pipe()
+                    p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-e", script]
+                    p.standardError = err; p.standardOutput = Pipe()
+                    try? p.run(); p.waitUntilExit()
+                    ok = p.terminationStatus == 0
+                    msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                    if !ok && attempt == 0 { sleep(2) }
+                }
+            } else { msg = "the connection to the phone is not ready" }
             DispatchQueue.main.async {
+                self?.mountingPhone = false
                 self?.phoneFilesMounted = ok
-                self?.phoneFilesMessage = ok ? nil : "Could not mount: \(msg.prefix(120))"
-                if ok { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }
+                self?.phoneFilesMessage = ok ? nil : (open ? "Could not mount: \(msg.prefix(120))" : nil)
+                if ok && open { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }
             }
         }
+    }
+
+    private static func nameResolves(_ host: String) -> Bool {
+        var res: UnsafeMutablePointer<addrinfo>?
+        defer { if res != nil { freeaddrinfo(res) } }
+        return getaddrinfo(host, nil, nil, &res) == 0
+    }
+
+    private static func portOpen(_ port: UInt16) -> Bool {
+        let s = socket(AF_INET, SOCK_STREAM, 0); defer { close(s) }
+        var a = sockaddr_in(); a.sin_family = sa_family_t(AF_INET); a.sin_port = port.bigEndian; a.sin_addr.s_addr = inet_addr("127.0.0.1")
+        return withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } } == 0
     }
 
     /// Quietly eject the phone drive. A WebDAV drive whose server vanished makes macOS show "Server connections interrupted",

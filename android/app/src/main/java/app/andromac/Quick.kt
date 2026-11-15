@@ -82,8 +82,8 @@ class StatusWidget : android.appwidget.AppWidgetProvider() {
 
         private fun render(ctx: Context, mgr: AppWidgetManager, id: Int) {
             val o = mgr.getAppWidgetOptions(id)
-            val large = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) >= 230 &&
-                o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) >= 100
+            val large = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) >= 180 &&
+                o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) >= 150
             mgr.updateAppWidget(id, build(ctx, large))
         }
 
@@ -101,9 +101,8 @@ class StatusWidget : android.appwidget.AppWidgetProvider() {
                 else -> R.drawable.w_dot_dim
             })
             v.setContentDescription(R.id.w_dot, state)
-            v.setTextViewText(R.id.w_toggle, if (on) "ON" else "OFF")
+            v.setImageViewResource(R.id.w_toggle, if (on) R.drawable.ic_w_power_dark else R.drawable.ic_w_power_light)
             v.setInt(R.id.w_toggle, "setBackgroundResource", if (on) R.drawable.w_btn_on else R.drawable.w_btn_off)
-            v.setTextColor(R.id.w_toggle, if (on) Color.BLACK else Color.WHITE)
             v.setContentDescription(R.id.w_toggle, if (on) "Andromac is on. Double tap to pause." else "Andromac is off. Double tap to turn on.")
             val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             val toggle = Intent(ctx, StatusWidget::class.java).setAction(ACTION_TOGGLE)
