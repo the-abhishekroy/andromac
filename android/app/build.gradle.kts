@@ -10,8 +10,8 @@ android {
         applicationId = "app.andromac"
         minSdk = 28
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         ndk { abiFilters += "arm64-v8a" }
     }
     // Private release key lives outside the repo (~/.andromac/signing); builds fall back to unsigned if it is absent.
