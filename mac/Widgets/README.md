@@ -32,6 +32,6 @@ Signed with the local identity "Andromac Local Signing" (self-signed, not truste
 
 ## Status of this machine (checked 2026-11-15)
 
-- Xcode account exists (Personal Team 5D9TMQJRCD) but NO signing certificate has been created: `security find-identity -v -p codesigning` shows 0 valid identities and `xcodebuild -allowProvisioningUpdates` fails with `No "Mac Development" signing certificate ... with a private key`. Fix: Xcode > Settings > Accounts > select the team > Manage Certificates > "+" > Apple Development. Then `TEAM_ID=5D9TMQJRCD ./build-widgets.sh --install`.
+- Xcode account exists but NO signing certificate has been created: `security find-identity -v -p codesigning` shows 0 valid identities and `xcodebuild -allowProvisioningUpdates` fails with `No "Mac Development" signing certificate ... with a private key`. Fix: Xcode > Settings > Accounts > select the team > Manage Certificates > "+" > Apple Development. Then `TEAM_ID=<your team id> ./build-widgets.sh --install`.
 - App Groups need a paid program (not available to Personal Teams), so the file + DistributedNotificationCenter bridge is used instead.
 - With the local self-signed identity the extension is embedded, validly sealed, sandboxed, and `pluginkit` lists `app.andromac.mac.widgets`. Whether the widget gallery offers it could not be confirmed headlessly (chronod logs nothing for it).
