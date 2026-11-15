@@ -168,7 +168,7 @@ private fun readPerms(ctx: Context): Perms {
         sms = has(Manifest.permission.RECEIVE_SMS),
         posts = Build.VERSION.SDK_INT < 33 || has(Manifest.permission.POST_NOTIFICATIONS),
         battery = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName),
-        overlay = AndroidSettings.canDrawOverlays(ctx),
+        overlay = true,
     )
 }
 
@@ -201,12 +201,8 @@ private fun permSpecs(perms: Perms, includeA11y: Boolean, a11yOn: Boolean): List
             "Choose Allow so Android doesn't put Andromac to sleep and drop the connection in the background.", "Fix") {
             ctx.startActivity(Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
         })
-        add(PermSpec(perms.overlay, "Display over other apps",
-            "Switch on Andromac in this list so what you copy on the phone reaches your Mac instantly, even when Andromac is in the background.", "Allow") {
-            ctx.startActivity(Intent(AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
-        })
-        if (includeA11y) add(PermSpec(a11yOn, "Accessibility",
-            "Settings, Accessibility, Installed apps, Andromac: switch it on so your Mac can tap and type on this phone.", "Open") {
+        if (includeA11y && !A11yToggle.canToggle(ctx)) add(PermSpec(a11yOn, "Control from Mac (optional)",
+            "To keep payment apps working, Andromac can switch its control service on only during a session. That needs a one-time setup from your computer (see Screen tab). Without it, switch it on by hand: Settings, Accessibility, Installed apps, Andromac.", "Open") {
             ctx.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
         })
     }
@@ -567,17 +563,20 @@ private fun ScreenTab(tick: Int) {
             }
         }
         Section("Let your Mac control this phone") {
-            if (a11yOn) Row(Modifier.padding(Sp.x4), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(Sp.x3))
-                Text("Accessibility is on for Andromac", style = MaterialTheme.typography.bodyLarge)
-            } else Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
-                Body("Without this your Mac can see the screen but cannot tap or type. Android needs two quick steps:")
-                Text("Step 1 (if needed)", style = MaterialTheme.typography.titleSmall)
-                Body("Open Andromac's app info, tap the menu at the top right and choose Allow restricted settings. If you don't see it, go to step 2.")
-                TonalButton("Open Andromac app info") { appInfo(ctx) }
-                Text("Step 2", style = MaterialTheme.typography.titleSmall)
-                Body("Open Accessibility, pick Andromac under Installed apps, and switch it on.")
-                PrimaryButton("Open Accessibility") { ctx.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
+                if (A11yToggle.canToggle(ctx)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(Sp.x3))
+                        Text("Automatic and payment-safe", style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Body("Control is switched on only while you are controlling this phone from the Mac, and switched off again afterwards. The rest of the time no accessibility service is running, so Paytm and banking apps work normally.")
+                } else {
+                    Body("Payment apps (Paytm, banks, UPI) refuse to work while an accessibility service that can tap for another device is on. To keep both working, Andromac can switch it on only during a session. One-time setup from your computer, with the phone connected over USB debugging:")
+                    Text("adb shell pm grant app.andromac android.permission.WRITE_SECURE_SETTINGS",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
+                    Body("Or skip this and switch the service on by hand in Settings, Accessibility, Installed apps, Andromac, only when you need Mac control (and off before paying).")
+                    TonalButton("Open Accessibility") { ctx.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                }
             }
         }
         if (!Link.isPaired) Body("Pair your Mac on the Home tab first.", Modifier.padding(horizontal = Sp.x2))

@@ -65,9 +65,8 @@ class LinkService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipListener = ClipboardManager.OnPrimaryClipChangedListener {
             if (!Settings.syncClipboard) return@OnPrimaryClipChangedListener
-            val ok = runCatching { ClipHistory.captureLocal(this, cm) }.getOrDefault(false)
-            if (!ok && android.provider.Settings.canDrawOverlays(this))   // hidden from background apps: take focus briefly to read it
-                runCatching { startActivity(Intent(this, ClipboardPushActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)) }
+            // Android hides clipboard contents from background apps; what can be read is synced, the rest uses the Share action or tile.
+            runCatching { ClipHistory.captureLocal(this, cm) }
         }
         cm.addPrimaryClipChangedListener(clipListener)
     }

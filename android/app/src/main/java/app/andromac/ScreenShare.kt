@@ -103,6 +103,7 @@ class ScreenShareService : Service() {
         codec = c
         display = p.createVirtualDisplay("andromac", w, h, resources.displayMetrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null)
+        A11yToggle.enable(this)       // control service is on only for the duration of this session
         running = true
         Link.send("screen_started", JSONObject().put("w", w).put("h", h))
         Thread({ drain(c) }, "andromac-encoder").start()
@@ -187,6 +188,7 @@ class ScreenShareService : Service() {
     }
 
     override fun onDestroy() {
+        A11yToggle.disable(this)
         running = false
         runCatching { getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener) }
         ScreenShareState.active = false
