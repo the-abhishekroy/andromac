@@ -159,6 +159,8 @@ final class AppModel: ObservableObject {
         loadClips()
         if let cur = NSPasteboard.general.string(forType: .string), !cur.isEmpty, !clipboardHistory.contains(where: { $0.text == cur }) { addClip(cur, fromPhone: false) }   // what is on the clipboard right now counts too
         AppDelegate.keepRunning = { [weak self] in self?.connectionEnabled ?? false }
+        AppDelegate.onReallyQuit = { [weak self] in self?.tunnel.stop() }
+        installLoginLauncher()
         BannerCenter.shared.onReply = { [weak self] key, text in
             self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
             self?.record("arrowshape.turn.up.left.fill", "Replied from Mac", text)
@@ -628,10 +630,31 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
     }
 
+    /// Start Andromac (hidden, no window) every time you log in, so notifications, clipboard and the phone link are live
+    /// right after a restart. The connection service itself is a separate launchd job (see TunnelManager).
+    private func installLoginLauncher() {
+        guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/app.andromac.app.plist")
+        let plist: [String: Any] = [
+            "Label": "app.andromac.app",
+            "ProgramArguments": [Bundle.main.bundlePath + "/Contents/MacOS/Andromac"],
+            "EnvironmentVariables": ["ANDROMAC_BG": "1"],
+            "RunAtLoad": true,
+            "KeepAlive": ["SuccessfulExit": false],          // a crash or force-quit brings it back; "Quit and disconnect" stays quit
+            "ProcessType": "Interactive",
+            "LimitLoadToSessionType": "Aqua",
+        ]
+        let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        guard (try? Data(contentsOf: url)) != data else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data?.write(to: url)
+        // loaded from the next login on (loading it now would start a second copy of the running app)
+    }
+
     func restartApp() {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", "sleep 1; open '\(Bundle.main.bundlePath)'"]
-        try? p.run(); tunnel.stop(); NSApp.terminate(nil)
+        try? p.run(); tunnel.leaveRunning(); NSApp.terminate(nil)
     }
 
     func guide(_ kind: PermKind) { PermissionGuide.show(kind, model: self) }

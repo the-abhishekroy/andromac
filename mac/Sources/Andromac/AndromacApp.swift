@@ -3,6 +3,8 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set true only by the explicit "Quit and disconnect" button.
     static var reallyQuit = false
+    /// Called when Andromac really quits ("Quit and disconnect"): stop the background service too.
+    static var onReallyQuit: () -> Void = {}
     /// True while the connection switch is on (set by the model).
     static var keepRunning: () -> Bool = { true }
 
@@ -10,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        // Started at login (hidden): no window, no Dock icon, just the menu bar item and the background work.
+        if ProcessInfo.processInfo.environment["ANDROMAC_BG"] == "1" {
+            DispatchQueue.main.async { NSApp.windows.filter { $0.styleMask.contains(.titled) }.forEach { $0.close() }; NSApp.setActivationPolicy(.accessory) }
+        }
         // When the last real window closes, drop the Dock icon so Andromac behaves like a background service.
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
             DispatchQueue.main.async {
@@ -26,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.accessory)
             return .terminateCancel
         }
+        if Self.reallyQuit { Self.onReallyQuit() }
         return .terminateNow
     }
 }
