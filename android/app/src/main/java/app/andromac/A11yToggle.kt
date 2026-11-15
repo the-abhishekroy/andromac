@@ -34,8 +34,8 @@ object A11yToggle {
 
     /** Switch our service off again, leaving other accessibility services untouched. */
     fun disable(ctx: Context) {
-        if (!canToggle(ctx)) return
-        runCatching { val l = split(ctx); if (component(ctx) in l) write(ctx, l - component(ctx)) }
+        if (canToggle(ctx)) runCatching { val l = split(ctx); if (component(ctx) in l) write(ctx, l - component(ctx)) }
+        // Any accessibility service may switch itself off, no special permission needed: this is the path normal users get.
         ControlService.instance?.disableSelf()
     }
 }

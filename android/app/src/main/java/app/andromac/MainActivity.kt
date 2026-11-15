@@ -574,7 +574,7 @@ private fun ScreenTab(tick: Int) {
                     Body("Payment apps (Paytm, banks, UPI) refuse to work while an accessibility service that can tap for another device is on. To keep both working, Andromac can switch it on only during a session. One-time setup from your computer, with the phone connected over USB debugging:")
                     Text("adb shell pm grant app.andromac android.permission.WRITE_SECURE_SETTINGS",
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
-                    Body("Or skip this and switch the service on by hand in Settings, Accessibility, Installed apps, Andromac, only when you need Mac control (and off before paying).")
+                    Body("Or skip this: switch the service on by hand in Settings, Accessibility, Installed apps, Andromac, only when you want Mac control. It switches itself off again when the session ends, so payment apps keep working the rest of the time.")
                     TonalButton("Open Accessibility") { ctx.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 }
             }
