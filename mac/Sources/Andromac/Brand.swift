@@ -68,6 +68,9 @@ struct OrbitLogo: View {
     }
 }
 
+private struct PopupStaticKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues { var popupStatic: Bool { get { self[PopupStaticKey.self] } set { self[PopupStaticKey.self] = newValue } } }
+
 // MARK: - App state helpers for the UI
 
 enum ConnState {
@@ -363,6 +366,7 @@ struct StatusChip: View {
     @EnvironmentObject var m: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduce
     @State private var dim = false
+    @Environment(\.popupStatic) private var popupStatic
     private var busy: Bool { m.uiState == .starting || m.uiState == .waiting }
     var body: some View {
         HStack(spacing: 6) {
@@ -372,8 +376,8 @@ struct StatusChip: View {
         .padding(.horizontal, 10).frame(minHeight: 24)
         .background(Brand.surfaceRaised, in: Capsule())
         .overlay(Capsule().strokeBorder(Brand.border))
-        .animation(Motion.normal(reduce), value: m.uiState)
-        .onAppear { if !reduce { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true } } }
+        .animation(popupStatic ? nil : Motion.normal(reduce), value: m.uiState)
+        .onAppear { if !reduce && !popupStatic { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true } } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Status: \(m.statusShort)")
     }
@@ -384,12 +388,13 @@ struct SkeletonBar: View {
     var width: CGFloat? = nil
     var height: CGFloat = 12
     @Environment(\.accessibilityReduceMotion) private var reduce
+    @Environment(\.popupStatic) private var popupStatic
     @State private var on = false
     var body: some View {
         RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Brand.surfaceRaised)
             .frame(width: width, height: height).frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
             .opacity(on ? 0.55 : 1)
-            .onAppear { if !reduce { withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { on = true } } }
+            .onAppear { if !reduce && !popupStatic { withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { on = true } } }
             .accessibilityHidden(true)
     }
 }

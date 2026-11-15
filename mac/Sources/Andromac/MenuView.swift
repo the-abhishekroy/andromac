@@ -19,9 +19,10 @@ struct MenuView: View {
         .background(Brand.canvas)
         .preferredColorScheme(.dark)
         .tint(Brand.accent)
-        .animation(Motion.slow(reduce), value: m.connected)
-        .animation(Motion.normal(reduce), value: m.clipboardHistory.count)
-        .animation(Motion.normal(reduce), value: m.uiState)
+        // No animation at all in the menu bar popup: macOS resizes the popup window itself, and animating the content at the
+        // same moment draws half-finished frames. Looping effects (logo pulse, status dot) are off here too.
+        .transaction { $0.animation = nil }
+        .environment(\.popupStatic, true)
     }
 
     private func openMain() {
@@ -33,7 +34,7 @@ struct MenuView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
-                OrbitLogo(size: 48, pulsing: m.uiState == .connected)
+                OrbitLogo(size: 48, pulsing: false)
                 VStack(alignment: .leading, spacing: 3) {
                     Label(m.statusShort, systemImage: m.statusSymbol)
                         .font(.caption.weight(.bold)).textCase(.uppercase).symbolRenderingMode(.hierarchical)
@@ -52,11 +53,11 @@ struct MenuView: View {
                 HStack(spacing: 6) {
                     Image(systemName: m.charging ? "battery.100percent.bolt" : "battery.75percent")
                     Text("Phone battery")
-                    Text("\(b)%").monospacedDigit().contentTransition(.numericText(value: Double(b)))
+                    Text("\(b)%").monospacedDigit()
                     if m.charging { Text("charging") }
                 }
                 .font(.callout).foregroundStyle(Brand.dim)
-                .animation(Motion.normal(reduce), value: b)
+                
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Phone battery \(b) percent\(m.charging ? ", charging" : "")")
             }
