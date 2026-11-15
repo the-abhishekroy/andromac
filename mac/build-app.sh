@@ -2,7 +2,7 @@
 # Builds dist/Andromac.app (works with just the Command Line Tools).
 set -e
 cd "$(dirname "$0")"
-if [ ! -x ../tunnel/build/andromac-tunnel ]; then (cd ../tunnel && PATH=/opt/homebrew/bin:$PATH go build -o build/andromac-tunnel ./cmd/andromac-tunnel); fi
+if [ ! -x ../tunnel/build/andromac-tunnel ]; then (cd ../tunnel && PATH=/opt/homebrew/bin:$PATH go build -trimpath -ldflags="-s -w" -o build/andromac-tunnel ./cmd/andromac-tunnel); fi
 swift build -c release --product Andromac
 APP=dist/Andromac.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

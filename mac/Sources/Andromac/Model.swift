@@ -151,7 +151,7 @@ final class AppModel: ObservableObject {
         }
         server.onMessage = { [weak self] t, data in DispatchQueue.main.async { self?.handle(t, data) } }
         server.onConnect = { [weak self] in DispatchQueue.main.async { self?.connected = true; self?.hasConnectedBefore = true; if self?.syncClipboard == true { self?.sendClipSync() } } }
-        server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil } }
+        server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil; self?.ejectPhoneDriveIfMounted() } }
         do { try server.start() } catch { log("server failed: \(error)") }
         tunnel.onState = { [weak self] state, detail in self?.tunnelEvent(state, detail) }
         tunnel.forwardSSH = terminalAccess
@@ -161,6 +161,7 @@ final class AppModel: ObservableObject {
         AppDelegate.keepRunning = { [weak self] in self?.connectionEnabled ?? false }
         AppDelegate.onReallyQuit = { [weak self] in self?.tunnel.stop() }
         installLoginLauncher()
+        ejectPhoneDriveIfMounted()          // a drive left over from last time would only show "Server connections interrupted"
         BannerCenter.shared.onReply = { [weak self] key, text in
             self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
             self?.record("arrowshape.turn.up.left.fill", "Replied from Mac", text)
@@ -460,7 +461,7 @@ final class AppModel: ObservableObject {
         if connectionEnabled {
             if tunnelState == "off" || tunnelState == "error" { tunnelState = "starting"; tunnel.start(port: port) }
         } else {
-            tunnel.stop(); server.disconnect()
+            ejectPhoneDriveIfMounted(); tunnel.stop(); server.disconnect()
             tunnelState = "off"; tunnelIP = nil; pairingURL = ""; connected = false; battery = nil
         }
     }
@@ -524,6 +525,22 @@ final class AppModel: ObservableObject {
                 self?.phoneFilesMessage = ok ? nil : "Could not mount: \(msg.prefix(120))"
                 if ok { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }
             }
+        }
+    }
+
+    /// Quietly eject the phone drive. A WebDAV drive whose server vanished makes macOS show "Server connections interrupted",
+    /// so this runs whenever the phone disconnects or the service stops, and at launch for any drive left over.
+    func ejectPhoneDriveIfMounted() {
+        DispatchQueue.global().async { [weak self] in
+            let m = Process(), pipe = Pipe(); m.executableURL = URL(fileURLWithPath: "/sbin/mount"); m.standardOutput = pipe
+            try? m.run(); m.waitUntilExit()
+            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            guard out.contains(":8790/Phone/ on /Volumes/") else { return }
+            let u = Process(); u.executableURL = URL(fileURLWithPath: "/sbin/umount"); u.arguments = ["-f", "/Volumes/Phone"]
+            try? u.run()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 6) { if u.isRunning { u.terminate() } }
+            u.waitUntilExit()
+            DispatchQueue.main.async { self?.phoneFilesMounted = false }
         }
     }
 

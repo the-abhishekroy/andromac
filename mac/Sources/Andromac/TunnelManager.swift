@@ -13,6 +13,7 @@ final class TunnelManager {
     private var buffer = Data()
     private var stopping = false
     private var retry = 1.0
+    private var failedAttaches = 0
 
     private let label = "app.andromac.tunnel"
     private var home: URL { FileManager.default.homeDirectoryForCurrentUser }
@@ -62,9 +63,17 @@ final class TunnelManager {
         let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         let changed = (try? Data(contentsOf: plistURL)) != data
         try? FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if changed || needCopy { try? data?.write(to: plistURL); _ = sh("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"]) }
-        _ = sh("/bin/launchctl", ["bootstrap", "gui/\(uid)", plistURL.path])      // no-op if already loaded
-        _ = sh("/bin/launchctl", ["kickstart", "gui/\(uid)/\(label)"])
+        if changed || needCopy {
+            try? data?.write(to: plistURL)
+            _ = sh("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
+            for _ in 0..<20 where sh("/bin/launchctl", ["print", "gui/\(uid)/\(label)"]) == 0 { usleep(150_000) }   // wait until it is really unloaded
+        }
+        for _ in 0..<5 {                                                                   // bootstrap can race with a job that is still unloading
+            if sh("/bin/launchctl", ["print", "gui/\(uid)/\(label)"]) == 0 { break }       // already loaded
+            if sh("/bin/launchctl", ["bootstrap", "gui/\(uid)", plistURL.path]) == 0 { break }
+            usleep(400_000)
+        }
+        _ = sh("/bin/launchctl", ["kickstart", "gui/\(uid)/\(label)"])                  // no-op if it is already running
         return true
     }
 
@@ -72,6 +81,7 @@ final class TunnelManager {
 
     func start(port: UInt16) {
         self.port = port; stopping = false
+        _ = sh("/bin/launchctl", ["enable", "gui/\(uid)/\(label)"])      // undo an earlier Stop, which is kept across restarts
         guard installService() else { onState?("error", "tunnel helper missing"); return }
         attach()
     }
@@ -86,11 +96,13 @@ final class TunnelManager {
         let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } } == 0
         guard ok else {
             close(s)
+            failedAttaches += 1
+            if failedAttaches % 4 == 0 { _ = installService() }   // still no socket: make sure the service is loaded and running
             let d = retry; retry = min(retry * 2, 5)         // the service may still be starting
             DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in self?.attach() }
             return
         }
-        retry = 1; fd = s
+        retry = 1; failedAttaches = 0; fd = s
         let src = DispatchSource.makeReadSource(fileDescriptor: s, queue: .global())
         src.setEventHandler { [weak self] in self?.readable() }
         src.setCancelHandler { close(s) }
@@ -132,6 +144,9 @@ final class TunnelManager {
     func stop() {
         send("shutdown")
         stopping = true; detach()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in _ = sh("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"]) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in
+            _ = sh("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
+            _ = sh("/bin/launchctl", ["disable", "gui/\(uid)/\(label)"])   // stays stopped after a restart or login until Start is pressed
+        }
     }
 }

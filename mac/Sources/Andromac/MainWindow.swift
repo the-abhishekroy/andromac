@@ -300,10 +300,10 @@ struct DeviceCard: View {
                 Button { m.reconnect() } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
                     .buttonStyle(.brandCompact).accessibilityHint("Drops the connection completely and connects again")
                 if m.connectionEnabled {
-                    Button { m.connectionEnabled = false } label: { Label("Disconnect", systemImage: "power") }
-                        .buttonStyle(.brandCompact).accessibilityHint("Closes the connection completely until you turn it on again")
+                    Button { m.connectionEnabled = false } label: { Label("Stop service", systemImage: "stop.circle") }
+                        .buttonStyle(.brandCompact).accessibilityHint("Stops the background connection service completely. It stays stopped, even after a restart, until you press Start service")
                 } else {
-                    Button { m.connectionEnabled = true } label: { Label("Connect", systemImage: "power") }
+                    Button { m.connectionEnabled = true } label: { Label("Start service", systemImage: "play.circle") }
                         .buttonStyle(.brandCompact)
                 }
                 Spacer()

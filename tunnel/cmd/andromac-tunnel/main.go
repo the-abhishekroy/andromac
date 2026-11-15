@@ -17,6 +17,9 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
+	"time"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,6 +69,11 @@ func main() {
 	standalone := flag.Bool("standalone", false, "run as a background service that outlives the app")
 	sock := flag.String("socket", "", "unix socket for the app to attach to (standalone mode)")
 	flag.Parse()
+	// keep the background service small: collect garbage early, cap the heap, return freed memory to macOS
+	runtime.GOMAXPROCS(2)
+	debug.SetGCPercent(30)
+	debug.SetMemoryLimit(24 << 20)
+	go func() { for range time.Tick(45 * time.Second) { debug.FreeOSMemory() } }()
 	if *dir == "" {
 		fmt.Fprintln(os.Stderr, "need -dir")
 		os.Exit(2)
