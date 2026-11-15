@@ -68,6 +68,9 @@ A real touchpad: move, tap, **two-finger scroll**, pinch, **three-finger drag**,
 <tr>
 <td width="50%" valign="top">
 
+### 📁 Your phone as a drive
+Turn on sharing on the phone and your **internal storage and SD card appear in Finder** as a drive named *Phone*, from anywhere. Read-only by default, with a switch for read and write. Protected by the key from your QR pairing.
+
 ### 🌐 Its own private network
 [Tailscale's `tsnet`](https://tailscale.com/kb/1244/tsnet) is embedded in both apps. Sign in once with a free Tailscale account. Sessions survive Wi-Fi to mobile-data switches, sleep and reboots, and reconnect on their own.
 
