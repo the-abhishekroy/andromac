@@ -127,7 +127,7 @@ struct MenuView: View {
                         HStack(spacing: 10) {
                             Image(systemName: item.sourceSymbol).symbolRenderingMode(.hierarchical)
                                 .foregroundStyle(item.fromPhone ? Brand.accent : .secondary).frame(width: 22)
-                            Text(item.text).font(.callout).lineLimit(2).multilineTextAlignment(.leading)
+                            ClipThumb(item: item)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: copiedID == item.id ? "checkmark" : "doc.on.doc").font(.callout)
                                 .foregroundStyle(copiedID == item.id ? Brand.accent : .secondary)
@@ -138,7 +138,7 @@ struct MenuView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(item.sourceName) clipboard: \(item.text)")
+                    .accessibilityLabel("\(item.sourceName) clipboard: \(item.displayText)")
                     .accessibilityHint("Copies this text back to your clipboard")
                     .accessibilityAddTraits(.isButton)
                 }

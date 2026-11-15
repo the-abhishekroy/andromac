@@ -589,21 +589,21 @@ private fun ClipboardTab(notify: (String) -> Unit) {
                     }
                     Text("Nothing copied yet", style = MaterialTheme.typography.titleLarge,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    Text("Copy some text on your Mac or this phone. It will show up here and on the other device.",
+                    Text("Copy text, a link or an image on your Mac or this phone. It will show up here and on the other device.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         } else {
             item { Heading("Recent, tap to copy again") }
-            items(items.toList(), key = { it.text }) { it ->
+            items(items.toList(), key = { it.key }) { it ->
                 val src = if (it.fromMac) "Mac" else "Phone"
                 Surface(
                     onClick = { ClipHistory.recopy(ctx, it); notify("Copied again") },
                     shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics(mergeDescendants = true) {
-                        contentDescription = "From $src, ${relTime(now, it.time)}. ${it.text.take(200)}. Double tap to copy again."
+                        contentDescription = "From $src, ${relTime(now, it.time)}. ${if (it.image != null) "Image" else it.text.take(200)}. Double tap to copy again."
                     },
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -612,7 +612,12 @@ private fun ClipboardTab(notify: (String) -> Unit) {
                             Spacer(Modifier.weight(1f))
                             Text(relTime(now, it.time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text(it.text, style = MaterialTheme.typography.bodyLarge, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        if (it.image != null) {
+                            val bmp = remember(it.key) { ImageCodec.thumbnail(it.image)?.asImageBitmap() }
+                            if (bmp != null) androidx.compose.foundation.Image(bmp, "Copied image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp)),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterStart)
+                            else Text("Image", style = MaterialTheme.typography.bodyLarge)
+                        } else Text(it.text, style = MaterialTheme.typography.bodyLarge, maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

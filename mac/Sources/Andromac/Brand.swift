@@ -304,3 +304,16 @@ struct MasterSwitch: View {
             .accessibilityHint("Turns the background connection to your phone on or off. It keeps running when the window is closed.")
     }
 }
+
+
+/// A clipboard item's preview: a small thumbnail for images, up to two lines for text and links.
+struct ClipThumb: View {
+    let item: ClipItem
+    var body: some View {
+        if let d = item.image, let img = NSImage(data: d) {
+            Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 44, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 6))
+        } else {
+            Text(item.text).font(.callout).lineLimit(2).multilineTextAlignment(.leading)
+        }
+    }
+}

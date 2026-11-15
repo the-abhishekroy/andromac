@@ -19,6 +19,10 @@ struct ClipItem: Identifiable {
     let text: String
     let fromPhone: Bool
     var date = Date()
+    var image: Data? = nil          // copied images (JPEG or PNG bytes)
+    var mime: String? = nil
+    var key: String { image.map { "img:" + ImageCodec.sha($0) } ?? text }
+    var displayText: String { image != nil ? "Image" : text }
 }
 
 final class AppModel: ObservableObject {
@@ -178,9 +182,12 @@ final class AppModel: ObservableObject {
         case "clip_sync":
             if syncClipboard, let items = data["items"] as? [[String: Any]] { mergeClips(items) }
         case "clipboard":
-            if syncClipboard, let text = data["text"] as? String, !text.isEmpty {
-                setClipboard(text)
-                addClip(text, fromPhone: true)
+            if syncClipboard {
+                if let b64 = data["image"] as? String, let img = Data(base64Encoded: b64) {
+                    setClipboardImage(img); addImageClip(img, mime: data["mime"] as? String ?? "image/jpeg", fromPhone: true)
+                } else if let text = data["text"] as? String, !text.isEmpty {
+                    setClipboard(text); addClip(text, fromPhone: true)
+                }
             }
         case "screen_started":
             if phoneWindow == nil {
@@ -245,10 +252,21 @@ final class AppModel: ObservableObject {
         let types = Set((pb.types ?? []).map { $0.rawValue })
         // password managers mark secrets as concealed/transient: never record or sync those
         if !types.isDisjoint(with: ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "com.agilebits.onepassword"]) { return }
-        guard let t = pb.string(forType: .string), !t.isEmpty, t.utf8.count < 100_000 else { return }
-        if clipboardHistory.first?.text == t { return }
-        addClip(t, fromPhone: false)
-        if connected && syncClipboard { sendClip(t) }
+        if let t = pb.string(forType: .string), !t.isEmpty {        // text and links
+            guard t.utf8.count < 100_000, !(clipboardHistory.first.map { $0.image == nil && $0.text == t } ?? false) else { return }
+            addClip(t, fromPhone: false)
+            if connected && syncClipboard { sendClip(t) }
+            return
+        }
+        // images (screenshots, "Copy Image", …)
+        guard let raw = pb.data(forType: .png) ?? pb.data(forType: .tiff), let (img, mime) = ImageCodec.prepare(raw) else { return }
+        if clipboardHistory.first?.key == "img:" + ImageCodec.sha(img) { return }
+        addImageClip(img, mime: mime, fromPhone: false)
+        if connected && syncClipboard { sendImage(img, mime) }
+    }
+
+    private func sendImage(_ d: Data, _ mime: String) {
+        server.send(type: "clipboard", data: ["image": d.base64EncodedString(), "mime": mime, "ts": Int(Date().timeIntervalSince1970 * 1000)])
     }
 
     private func sendClip(_ t: String) {
@@ -256,11 +274,33 @@ final class AppModel: ObservableObject {
     }
 
     private func addClip(_ text: String, fromPhone: Bool, date: Date = Date()) {
-        clipboardHistory.removeAll { $0.text == text }
+        clipboardHistory.removeAll { $0.image == nil && $0.text == text }
         clipboardHistory.insert(ClipItem(text: text, fromPhone: fromPhone, date: date), at: 0)
-        if clipboardHistory.count > 100 { clipboardHistory.removeLast(clipboardHistory.count - 100) }
+        trimClips()
         if !fromPhone { lastLocalClip = date }
         saveClips()
+    }
+
+    private func addImageClip(_ data: Data, mime: String, fromPhone: Bool, date: Date = Date()) {
+        let k = "img:" + ImageCodec.sha(data)
+        clipboardHistory.removeAll { $0.key == k }
+        clipboardHistory.insert(ClipItem(text: "", fromPhone: fromPhone, date: date, image: data, mime: mime), at: 0)
+        trimClips()
+        if !fromPhone { lastLocalClip = date }
+        saveClips()
+    }
+
+    private func trimClips() {
+        if clipboardHistory.count > 100 { clipboardHistory.removeLast(clipboardHistory.count - 100) }
+        var images = 0
+        clipboardHistory.removeAll { if $0.image != nil { images += 1; return images > 30 }; return false }   // keep the 30 newest images
+    }
+
+    private func setClipboardImage(_ data: Data) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        if let img = NSImage(data: data) { pb.writeObjects([img]) }
+        lastClip = pb.changeCount
     }
 
     // MARK: clipboard history: saved on this Mac and exchanged with the phone every time they connect
@@ -271,11 +311,26 @@ final class AppModel: ObservableObject {
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return d.appendingPathComponent("clipboard.json")
     }
+    private var clipDir: URL {
+        let d = clipFile.deletingLastPathComponent().appendingPathComponent("clips", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return d
+    }
     private func saveClips() {
         saveWork?.cancel()
-        let items = clipboardHistory.map { ["t": $0.text, "p": $0.fromPhone, "d": $0.date.timeIntervalSince1970] as [String: Any] }
-        let w = DispatchWorkItem { [clipFile] in
-            if let data = try? JSONSerialization.data(withJSONObject: items) {
+        let snapshot = clipboardHistory
+        let w = DispatchWorkItem { [clipFile, clipDir] in
+            var keep = Set<String>(); var rows: [[String: Any]] = []
+            for it in snapshot {
+                if let img = it.image {
+                    let name = ImageCodec.sha(img) + ((it.mime == "image/png") ? ".png" : ".jpg"); keep.insert(name)
+                    let f = clipDir.appendingPathComponent(name)
+                    if !FileManager.default.fileExists(atPath: f.path) { try? img.write(to: f) }
+                    rows.append(["f": name, "mt": it.mime ?? "image/jpeg", "p": it.fromPhone, "d": it.date.timeIntervalSince1970])
+                } else { rows.append(["t": it.text, "p": it.fromPhone, "d": it.date.timeIntervalSince1970]) }
+            }
+            for f in (try? FileManager.default.contentsOfDirectory(atPath: clipDir.path)) ?? [] where !keep.contains(f) { try? FileManager.default.removeItem(at: clipDir.appendingPathComponent(f)) }
+            if let data = try? JSONSerialization.data(withJSONObject: rows) {
                 try? data.write(to: clipFile, options: .atomic)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: clipFile.path)
             }
@@ -285,35 +340,59 @@ final class AppModel: ObservableObject {
     private func loadClips() {
         guard let data = try? Data(contentsOf: clipFile), let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
         clipboardHistory = arr.compactMap { o in
-            guard let t = o["t"] as? String, let d = o["d"] as? Double else { return nil }
+            guard let d = o["d"] as? Double else { return nil }
+            if let f = o["f"] as? String {
+                guard let img = try? Data(contentsOf: clipDir.appendingPathComponent(f)) else { return nil }
+                return ClipItem(text: "", fromPhone: (o["p"] as? Bool) ?? false, date: Date(timeIntervalSince1970: d), image: img, mime: o["mt"] as? String ?? "image/jpeg")
+            }
+            guard let t = o["t"] as? String else { return nil }
             return ClipItem(text: t, fromPhone: (o["p"] as? Bool) ?? false, date: Date(timeIntervalSince1970: d))
         }.sorted { $0.date > $1.date }
         lastLocalClip = clipboardHistory.first(where: { !$0.fromPhone })?.date ?? .distantPast
     }
     /// Everything we have, for the phone (newest first; huge items skipped).
     private func sendClipSync() {
-        let items = clipboardHistory.prefix(100).filter { $0.text.utf8.count < 20_000 }
-            .map { ["t": $0.text, "s": $0.fromPhone ? "phone" : "mac", "ts": Int($0.date.timeIntervalSince1970 * 1000)] as [String: Any] }
+        var images = 0
+        var items: [[String: Any]] = []
+        for it in clipboardHistory.prefix(100) {
+            var o: [String: Any] = ["s": it.fromPhone ? "phone" : "mac", "ts": Int(it.date.timeIntervalSince1970 * 1000)]
+            if let img = it.image { images += 1; if images > 10 { continue }; o["img"] = img.base64EncodedString(); o["mime"] = it.mime ?? "image/jpeg" }
+            else if it.text.utf8.count < 20_000 { o["t"] = it.text } else { continue }
+            items.append(o)
+        }
         server.send(type: "clip_sync", data: ["items": items])
     }
     /// Merge the phone's history into ours. If the phone's newest item is newer than anything copied here, make it current.
     private func mergeClips(_ items: [[String: Any]]) {
         for o in items {
-            guard let t = o["t"] as? String, !t.isEmpty, let ms = o["ts"] as? Double ?? (o["ts"] as? Int).map(Double.init) else { continue }
-            if clipboardHistory.contains(where: { $0.text == t }) { continue }
-            clipboardHistory.append(ClipItem(text: t, fromPhone: (o["s"] as? String) != "mac", date: Date(timeIntervalSince1970: ms / 1000)))
+            guard let ms = o["ts"] as? Double ?? (o["ts"] as? Int).map(Double.init) else { continue }
+            let fromPhone = (o["s"] as? String) != "mac", date = Date(timeIntervalSince1970: ms / 1000)
+            if let b64 = o["img"] as? String, let img = Data(base64Encoded: b64) {
+                let k = "img:" + ImageCodec.sha(img)
+                if clipboardHistory.contains(where: { $0.key == k }) { continue }
+                clipboardHistory.append(ClipItem(text: "", fromPhone: fromPhone, date: date, image: img, mime: o["mime"] as? String ?? "image/jpeg"))
+            } else if let t = o["t"] as? String, !t.isEmpty {
+                if clipboardHistory.contains(where: { $0.image == nil && $0.text == t }) { continue }
+                clipboardHistory.append(ClipItem(text: t, fromPhone: fromPhone, date: date))
+            }
         }
         clipboardHistory.sort { $0.date > $1.date }
-        if clipboardHistory.count > 100 { clipboardHistory.removeLast(clipboardHistory.count - 100) }
-        saveClips()
-        if syncClipboard, let newest = clipboardHistory.first, newest.fromPhone, newest.date > lastLocalClip { setClipboard(newest.text) }
+        trimClips(); saveClips()
+        if syncClipboard, let newest = clipboardHistory.first, newest.fromPhone, newest.date > lastLocalClip {
+            if let img = newest.image { setClipboardImage(img) } else { setClipboard(newest.text) }
+        }
     }
 
     /// Put a history item back on this Mac's clipboard and on the phone's.
     func recopy(_ item: ClipItem) {
-        setClipboard(item.text)
-        addClip(item.text, fromPhone: item.fromPhone)
-        if connected && syncClipboard { sendClip(item.text) }
+        if let img = item.image {
+            setClipboardImage(img); addImageClip(img, mime: item.mime ?? "image/jpeg", fromPhone: item.fromPhone)
+            if connected && syncClipboard { sendImage(img, item.mime ?? "image/jpeg") }
+        } else {
+            setClipboard(item.text)
+            addClip(item.text, fromPhone: item.fromPhone)
+            if connected && syncClipboard { sendClip(item.text) }
+        }
     }
 
     func clearClipboardHistory() { clipboardHistory.removeAll(); saveClips() }

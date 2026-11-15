@@ -143,7 +143,11 @@ object Link {
         val data = env.optJSONObject("data") ?: JSONObject()
         when (env.optString("type")) {
             "clipboard" -> main.post {
-                if (Settings.syncClipboard) ClipHistory.applyFromMac(app, data.optString("text"))
+                if (Settings.syncClipboard) {
+                    val img = data.optString("image")
+                    if (img.isNotEmpty()) runCatching { ClipHistory.applyImageFromMac(app, android.util.Base64.decode(img, android.util.Base64.DEFAULT), data.optString("mime").ifEmpty { "image/jpeg" }) }
+                    else ClipHistory.applyFromMac(app, data.optString("text"))
+                }
             }
             "hello" -> { macUser = data.optString("user"); pushState(state.copy(macName = data.optString("device"))) }
             "notification" -> if (Settings.showMacNotifications) MacNotify.show(app, data)

@@ -14,10 +14,7 @@ class ClipboardPushActivity : Activity() {
         done = true
         Link.init(this)
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val text = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        ClipHistory.onLocalChange(text)?.let {
-            if (Settings.syncClipboard) Link.send("clipboard", JSONObject().put("text", it).put("ts", System.currentTimeMillis()))
-        }
+        runCatching { ClipHistory.captureLocal(this, cm) }
         finish()
     }
 }

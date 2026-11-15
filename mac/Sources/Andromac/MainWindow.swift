@@ -423,9 +423,13 @@ struct ClipRow: View {
                         SourceBadge(item: item)
                         Text(item.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
                     }
-                    Text(item.text).font(.callout).foregroundStyle(.primary)
+                    if let d = item.image, let img = NSImage(data: d) {
+                        Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 150, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Text(item.text).font(.callout).foregroundStyle(.primary)
                         .lineLimit(compact ? 2 : 3).truncationMode(.tail)
                         .multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                     .font(.callout.weight(.semibold)).foregroundStyle(copied ? Brand.accent : .secondary)
@@ -438,7 +442,7 @@ struct ClipRow: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.sourceName) clipboard, \(item.date.formatted(.relative(presentation: .named))): \(item.text)")
+        .accessibilityLabel("\(item.sourceName) clipboard, \(item.date.formatted(.relative(presentation: .named))): \(item.displayText)")
         .accessibilityHint("Copies this text back to your clipboard, and your phone's")
         .accessibilityAddTraits(.isButton)
     }
@@ -452,7 +456,7 @@ struct ClipboardPage: View {
     private var items: [ClipItem] {
         let q = query.trimmingCharacters(in: .whitespaces)
         if q.isEmpty { return m.clipboardHistory }
-        return m.clipboardHistory.filter { $0.text.localizedCaseInsensitiveContains(q) || $0.sourceName.localizedCaseInsensitiveContains(q) }
+        return m.clipboardHistory.filter { $0.displayText.localizedCaseInsensitiveContains(q) || $0.sourceName.localizedCaseInsensitiveContains(q) }
     }
 
     var body: some View {

@@ -50,13 +50,9 @@ class LinkService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipListener = ClipboardManager.OnPrimaryClipChangedListener {
             if (!Settings.syncClipboard) return@OnPrimaryClipChangedListener
-            val text = runCatching { cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
-            if (text.isNullOrEmpty()) {
-                if (android.provider.Settings.canDrawOverlays(this))
-                    runCatching { startActivity(Intent(this, ClipboardPushActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)) }
-            } else ClipHistory.onLocalChange(text)?.let {
-                Link.send("clipboard", org.json.JSONObject().put("text", it).put("ts", System.currentTimeMillis()))
-            }
+            val ok = runCatching { ClipHistory.captureLocal(this, cm) }.getOrDefault(false)
+            if (!ok && android.provider.Settings.canDrawOverlays(this))   // hidden from background apps: take focus briefly to read it
+                runCatching { startActivity(Intent(this, ClipboardPushActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)) }
         }
         cm.addPrimaryClipChangedListener(clipListener)
     }
