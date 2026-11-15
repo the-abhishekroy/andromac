@@ -501,8 +501,12 @@ final class AppModel: ObservableObject {
         tunnel.send("proxy 8790 \(ip):8790")              // Mac 127.0.0.1:8790 -> phone file server, through the private network
         phoneFilesMessage = "Mounting…"
         let pw = davPassword(secret: secret)
+        // Finder labels a network drive with the host it connected to, so use the phone's name (".localhost" always resolves to this Mac's own tunnel).
+        let slug = (phoneName ?? "phone").lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
+            .split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
+        let host = (slug.isEmpty ? "phone" : slug) + ".localhost"
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            let script = "mount volume \"http://127.0.0.1:8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
+            let script = "mount volume \"http://\(host):8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
             let p = Process(), err = Pipe()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-e", script]
             p.standardError = err; p.standardOutput = Pipe()
