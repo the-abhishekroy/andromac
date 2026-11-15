@@ -45,6 +45,23 @@ object Link {
     @Volatile var videoSink: ((Int, ByteArray) -> Unit)? = null
     @Volatile var macScreen: ((String, JSONObject) -> Unit)? = null
 
+    fun secretBytes(): ByteArray? = pairingLink()?.let { runCatching { Channel.decodeSecret(Uri.parse(it).lastPathSegment!!) }.getOrNull() }?.takeIf { it.size == 32 }
+
+    /** What the Mac needs to know about file sharing from this phone. */
+    fun filesState(): JSONObject = JSONObject().put("enabled", Settings.fileShare && FileServer.hasAllFilesAccess())
+        .put("write", Settings.fileWrite).put("needsPermission", Settings.fileShare && !FileServer.hasAllFilesAccess())
+
+    /** Start or stop the file server to match the settings, and tell the Mac. */
+    fun applyFiles(ctx: Context) {
+        val want = Settings.fileShare && FileServer.hasAllFilesAccess()
+        val sec = secretBytes()
+        if (want && sec != null) {
+            runCatching { FileServer.start(ctx, sec) }
+            Net.serveFiles()
+        } else FileServer.stop()
+        send("files_state", filesState())
+    }
+
     fun init(ctx: Context) {
         app = ctx.applicationContext; Settings.load(app); ClipHistory.load(app)
         if (state.phase == Phase.NOT_PAIRED && pairingLink() != null) state = State(Phase.CONNECTING)
@@ -97,7 +114,8 @@ object Link {
                 epoch++
                 pushState(State(Phase.CONNECTED, state.macName))
                 if (Settings.syncClipboard) send("clip_sync", JSONObject().put("items", ClipHistory.export()))
-                send("hello", JSONObject().put("device", android.os.Build.MODEL).put("version", 1).put("tip", Net.ip ?: ""))
+                send("hello", JSONObject().put("device", android.os.Build.MODEL).put("version", 1).put("tip", Net.ip ?: "").put("files", filesState()))
+                applyFiles(app)
                 sendBattery()
             }
             override fun onMessage(ws: WebSocket, bytes: ByteString) { handle(bytes.toByteArray()) }

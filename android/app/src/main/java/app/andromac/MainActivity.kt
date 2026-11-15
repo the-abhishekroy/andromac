@@ -626,6 +626,21 @@ private fun SettingsTab(tick: Int, openApps: () -> Unit) {
                 Net.loginUrl?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
             }
         }
+        Section("Files on your Mac") {
+            val hasAll = remember(tick, Settings.fileShare) { FileServer.hasAllFilesAccess() }
+            SwitchRow("Share this phone's files with your Mac", "Your Mac sees internal storage and the SD card as a drive named Phone in Finder.",
+                Settings.fileShare, { Settings.updateFileShare(it); Link.applyFiles(ctx) })
+            if (Settings.fileShare) {
+                SwitchRow("Allow changes", "Off: your Mac can only read. On: it can also add, rename and delete files here.",
+                    Settings.fileWrite, { Settings.updateFileWrite(it); Link.applyFiles(ctx) })
+                if (!hasAll) {
+                    Body("Android needs the \"All files access\" switch for Andromac before it can share files.", Modifier.padding(horizontal = Sp.x4))
+                    PrimaryButton("Allow all files access", Modifier.padding(horizontal = Sp.x4, vertical = Sp.x2)) {
+                        ctx.startActivity(Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${ctx.packageName}")))
+                    }
+                }
+            }
+        }
         // Advanced: terminal access and network details
         Column(verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
             Heading("Advanced")

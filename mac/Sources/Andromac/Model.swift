@@ -96,6 +96,12 @@ final class AppModel: ObservableObject {
     private var share: MacScreenShare?
     private let tunnel = TunnelManager()
     private var iconPNG: [String: Data] = [:]
+    // phone files (WebDAV through the private network, mounted in Finder as "Phone")
+    @Published var phoneFilesEnabled = false
+    @Published var phoneFilesWritable = false
+    @Published var phoneFilesNeedsPermission = false
+    @Published var phoneFilesMounted = false
+    @Published var phoneFilesMessage: String?
     private var phoneTailIP: String?
     private var cursorTimer: Timer?
     private var lastCursor = CGPoint(x: -1, y: -1)
@@ -183,6 +189,9 @@ final class AppModel: ObservableObject {
         case "hello":
             phoneName = data["device"] as? String
             if let ip = data["tip"] as? String, !ip.isEmpty { phoneTailIP = ip; updatePhoneSSH() }
+            if let f = data["files"] as? [String: Any] { applyFilesState(f) }
+        case "files_state":
+            applyFilesState(data)
         case "battery":
             battery = data["level"] as? Int
             charging = (data["charging"] as? Bool) ?? ((data["charging"] as? Int) == 1)
@@ -472,6 +481,45 @@ final class AppModel: ObservableObject {
         case "error": tunnelState = "error"; tunnelDetail = detail
         default: if tunnelState != "login" && tunnelState != "running" { tunnelState = "starting" }
         }
+    }
+
+    private func applyFilesState(_ f: [String: Any]) {
+        phoneFilesEnabled = (f["enabled"] as? Bool) ?? false
+        phoneFilesWritable = (f["write"] as? Bool) ?? false
+        phoneFilesNeedsPermission = (f["needsPermission"] as? Bool) ?? false
+        if !phoneFilesEnabled { phoneFilesMounted = false }
+    }
+
+    /// Open the phone's storage in Finder as the drive "Phone".
+    func mountPhoneFiles() {
+        guard let ip = phoneTailIP else { phoneFilesMessage = "Connect your phone first."; return }
+        guard phoneFilesEnabled else {
+            phoneFilesMessage = phoneFilesNeedsPermission ? "On the phone: Settings, Files on your Mac, Allow all files access."
+                                                          : "On the phone: Settings, Files on your Mac, turn on Share this phone's files."
+            return
+        }
+        tunnel.send("proxy 8790 \(ip):8790")              // Mac 127.0.0.1:8790 -> phone file server, through the private network
+        phoneFilesMessage = "Mounting…"
+        let pw = davPassword(secret: secret)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            let script = "mount volume \"http://127.0.0.1:8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
+            let p = Process(), err = Pipe()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-e", script]
+            p.standardError = err; p.standardOutput = Pipe()
+            try? p.run(); p.waitUntilExit()
+            let ok = p.terminationStatus == 0
+            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            DispatchQueue.main.async {
+                self?.phoneFilesMounted = ok
+                self?.phoneFilesMessage = ok ? nil : "Could not mount: \(msg.prefix(120))"
+                if ok { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }
+            }
+        }
+    }
+
+    func unmountPhoneFiles() {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil"); p.arguments = ["unmount", "/Volumes/Phone"]
+        try? p.run(); p.waitUntilExit(); phoneFilesMounted = false
     }
 
     func tunnelSignOut() { tunnelIP = nil; tunnel.send("logout") }

@@ -44,3 +44,12 @@ extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
+
+
+/// Key for the phone's file server (WebDAV): HKDF-SHA256 of the pairing secret, first 24 characters of base64url.
+func davPassword(secret: Data) -> String {
+    let k = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: secret), salt: Data("andromac-v1".utf8),
+                                   info: Data("webdav".utf8), outputByteCount: 32)
+    let d = k.withUnsafeBytes { Data($0) }
+    return String(d.base64URL().prefix(24))
+}

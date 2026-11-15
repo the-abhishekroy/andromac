@@ -18,6 +18,8 @@ object Settings {
     var keepConnected by mutableStateOf(true); private set
     var syncClipboard by mutableStateOf(true); private set
     var terminalBridge by mutableStateOf(true); private set
+    var fileShare by mutableStateOf(false); private set          // share phone storage with the Mac (off by default)
+    var fileWrite by mutableStateOf(false); private set          // allow the Mac to change files (read-only by default)
 
     fun load(ctx: Context) {
         if (loaded) return
@@ -30,10 +32,14 @@ object Settings {
         keepConnected = sp.getBoolean("keep", true)
         syncClipboard = sp.getBoolean("clip", true)
         terminalBridge = sp.getBoolean("term", true)
+        fileShare = sp.getBoolean("fshare", false)
+        fileWrite = sp.getBoolean("fwrite", false)
         loaded = true
     }
 
     fun updateKeepConnected(v: Boolean) { keepConnected = v; sp.edit().putBoolean("keep", v).apply() }
+    fun updateFileShare(v: Boolean) { fileShare = v; sp.edit().putBoolean("fshare", v).apply() }
+    fun updateFileWrite(v: Boolean) { fileWrite = v; sp.edit().putBoolean("fwrite", v).apply() }
     fun updateTerminalBridge(v: Boolean) { terminalBridge = v; sp.edit().putBoolean("term", v).apply() }
     fun updateSyncClipboard(v: Boolean) { syncClipboard = v; sp.edit().putBoolean("clip", v).apply() }
     fun setMirror(v: Boolean) { mirrorNotifications = v; sp.edit().putBoolean("mirror", v).apply() }

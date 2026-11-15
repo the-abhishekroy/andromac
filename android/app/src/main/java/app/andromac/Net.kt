@@ -29,6 +29,13 @@ object Net {
         try { app.andromac.tunnel.Tunnel.serve(8022, "127.0.0.1:8022") } catch (e: Throwable) { }
     }
 
+    private var filesServed = false
+    /** Expose the phone's file server (127.0.0.1:8790) on the private network so the paired Mac can reach it. */
+    @Synchronized fun serveFiles() {
+        if (filesServed || state != "running") return
+        try { app.andromac.tunnel.Tunnel.serve(FileServer.PORT.toLong(), "127.0.0.1:${FileServer.PORT}"); filesServed = true } catch (e: Throwable) { }
+    }
+
     fun start(ctx: Context) {
         if (started) return
         started = true

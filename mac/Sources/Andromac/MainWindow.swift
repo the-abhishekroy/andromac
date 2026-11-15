@@ -503,6 +503,10 @@ struct Dashboard: View {
                        enabled: m.connected) { m.requestPhoneScreen() }
             ActionTile(icon: "doc.on.clipboard", title: "Clipboard history",
                        subtitle: m.clipboardHistory.isEmpty ? "Nothing copied yet" : "\(m.clipboardHistory.count) saved items") { go(.clipboard, nil) }
+            ActionTile(icon: "externaldrive.connected.to.line.below", title: "Phone files",
+                       subtitle: m.phoneFilesMounted ? "Mounted in Finder as Phone"
+                                 : (m.phoneFilesMessage ?? (m.phoneFilesEnabled ? "Open your phone's storage in Finder" : "Turn on sharing in the phone's Settings")),
+                       enabled: m.connected) { m.phoneFilesMounted ? m.unmountPhoneFiles() : m.mountPhoneFiles() }
             ActionTile(icon: "terminal", title: "Terminal help",
                        subtitle: "Two shortcuts: ssh m5 and ssh f14") { go(.settings, "terminal") }
         }
