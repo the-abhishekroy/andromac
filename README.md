@@ -110,7 +110,14 @@ Android's accessibility service is switched on **only while you control the phon
 
 ## 📦 Install in 5 minutes
 
-1. **Mac:** download `Andromac-x.y.z.dmg` from [Releases](../../releases/latest), drag *Andromac* to Applications. First launch: right-click the app and choose **Open** (until the app is notarized).
+1. **Mac:** download `Andromac-x.y.z.dmg` from [Releases](../../releases/latest) and drag *Andromac* to Applications.
+   The app isn't notarized by Apple yet, so macOS may say it is "damaged" or from an unidentified developer. It isn't: macOS just tags every download from the internet. Clear the tag once, in Terminal, after copying the app to Applications:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Andromac.app
+   ```
+
+   Then open it normally. (Alternative: right-click the app, choose **Open**, then **Open** again. On macOS 15 and later you may instead need *System Settings → Privacy & Security → Open Anyway*.)
 2. **Android:** download `Andromac-x.y.z.apk` and install it. Play Protect may warn about a sideloaded app that reads notifications: choose *More details → Install anyway*.
 3. **Sign in** to the built-in private network on both devices, with the same free Tailscale account.
 4. **Scan the QR code** shown on the Mac with the phone.
