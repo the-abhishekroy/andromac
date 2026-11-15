@@ -14,7 +14,7 @@ object MacNotify {
 
     fun show(ctx: Context, d: JSONObject) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("mac", "From Mac", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel("mac", "Mac", NotificationManager.IMPORTANCE_HIGH))
         val title = d.optString("title"); val text = d.optString("text"); val app = d.optString("app", "Mac")
         val bundle = d.optString("pkg")
         d.optString("icon").takeIf { it.isNotEmpty() }?.let { Badge.decode(it)?.let { b -> macIcons[bundle] = b } }
@@ -26,7 +26,7 @@ object MacNotify {
             .setLargeIcon(Badge.withMacBadge(macIcons[bundle]))
             .setContentTitle(if (title.isEmpty()) app else title)
             .setContentText(text)
-            .setSubText("$app · from Mac")
+            .setSubText("$app · Mac")
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(pi)
             .setAutoCancel(true)
@@ -37,7 +37,7 @@ object MacNotify {
     /** The Mac asked to see this screen: Android needs an on-device tap, so we post an actionable notification. */
     fun askScreen(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("mac", "From Mac", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel("mac", "Mac", NotificationManager.IMPORTANCE_HIGH))
         val pi = android.app.PendingIntent.getActivity(ctx, 3,
             android.content.Intent(ctx, ScreenConsentActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
         nm.notify(999, NotificationCompat.Builder(ctx, "mac").setSmallIcon(R.drawable.ic_stat)
@@ -48,7 +48,7 @@ object MacNotify {
     /** Control was requested but the accessibility service is off: Android requires the user to switch it on. */
     fun askAccessibility(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("mac", "From Mac", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel("mac", "Mac", NotificationManager.IMPORTANCE_HIGH))
         val pi = android.app.PendingIntent.getActivity(ctx, 4,
             android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS), android.app.PendingIntent.FLAG_IMMUTABLE)
         nm.notify(998, NotificationCompat.Builder(ctx, "mac").setSmallIcon(R.drawable.ic_stat)

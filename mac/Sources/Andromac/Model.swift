@@ -23,6 +23,8 @@ struct ClipItem: Identifiable {
 
 final class AppModel: ObservableObject {
     @Published var clipboardHistory: [ClipItem] = []
+    /// Off (default): Andromac draws its own banners with the real app icon on the left. On: macOS notification banners.
+    @Published var nativeBanners: Bool { didSet { UserDefaults.standard.set(nativeBanners, forKey: "nativeBanners") } }
     /// Stops the Mac from going to sleep on idle, so the phone (and `ssh m5`) can always reach it. The display can still sleep.
     @Published var keepAwake: Bool { didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake"); applyKeepAwake() } }
     private var assertionID: IOPMAssertionID = 0
@@ -96,6 +98,7 @@ final class AppModel: ObservableObject {
         syncClipboard = d.bool(forKey: "syncClip")
         terminalAccess = d.bool(forKey: "termOn")
         keepAwake = d.bool(forKey: "keepAwake")
+        nativeBanners = d.bool(forKey: "nativeBanners")
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
@@ -114,6 +117,12 @@ final class AppModel: ObservableObject {
         tunnel.onState = { [weak self] state, detail in self?.tunnelEvent(state, detail) }
         tunnel.forwardSSH = terminalAccess
         applyKeepAwake()
+        AppDelegate.keepRunning = { [weak self] in self?.connectionEnabled ?? false }
+        BannerCenter.shared.onReply = { [weak self] key, text in
+            self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
+            self?.record("arrowshape.turn.up.left.fill", "Replied from Mac", text)
+        }
+        BannerCenter.shared.onOpen = { [weak self] key, title in self?.openOnPhone(key: key, title: title) }
         if connectionEnabled { tunnel.start(port: port) } else { tunnelState = "off" }
         if first { d.set(false, forKey: "firstRun"); if Bundle.main.bundlePath.hasSuffix(".app") { launchAtLogin = true } }
 
@@ -148,8 +157,14 @@ final class AppModel: ObservableObject {
             let text = data["text"] as? String ?? ""
             let pkg = data["pkg"] as? String ?? app
             if let b64 = data["icon"] as? String, let png = Data(base64Encoded: b64) { iconPNG[pkg] = png }
-            Notifier.shared.post(title: title.isEmpty ? app : title, body: text, subtitle: "\(app) · from phone",
-                                 key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false)
+            if nativeBanners {
+                Notifier.shared.post(title: title.isEmpty ? app : title, body: text, subtitle: "\(app) · Phone",
+                                     key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false)
+            } else {
+                BannerCenter.shared.show(BannerItem(title: title.isEmpty ? app : title, subtitle: "\(app) · Phone", body: text,
+                                                    icon: iconPNG[pkg].flatMap { NSImage(data: $0) }, key: data["key"] as? String,
+                                                    canReply: (data["canReply"] as? Bool) ?? false))
+            }
             record("bell.fill", "\(app)\(title.isEmpty ? "" : " · \(title)")", text)
             if let otp = data["otp"] as? String { gotOTP(otp, from: app) }
         case "sms":

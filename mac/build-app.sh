@@ -37,6 +37,6 @@ else
 fi
 echo "Built $APP"
 if [ "$1" = "--install" ]; then
-  pkill -x Andromac 2>/dev/null; pkill -x andromac-tunnel 2>/dev/null; sleep 1
+  pkill -x Andromac 2>/dev/null || true; pkill -x andromac-tunnel 2>/dev/null || true; sleep 1
   rm -rf /Applications/Andromac.app && cp -R "$APP" /Applications/Andromac.app && echo "Installed /Applications/Andromac.app"
 fi

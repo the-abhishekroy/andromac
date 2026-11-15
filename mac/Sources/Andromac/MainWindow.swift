@@ -644,6 +644,11 @@ struct SettingsPage: View {
             Divider()
             ToggleRow(symbol: "sunrise.fill", title: "Open Andromac at login", detail: "Starts quietly in the menu bar.", isOn: $m.launchAtLogin)
         }
+        Card(title: "Notifications") {
+            ToggleRow(symbol: "bell.badge", title: "Use macOS notification banners",
+                      detail: "Off (recommended): Andromac shows its own banners with the real app's icon on the left, a phone badge, Reply and click to open. On: standard macOS banners, which always show Andromac's own icon.",
+                      isOn: $m.nativeBanners)
+        }
         Card(title: "Availability") {
             ToggleRow(symbol: "moon.zzz.fill", title: "Keep this Mac reachable",
                       detail: "Stops the Mac from sleeping when idle so your phone, and ssh from Termux, can always reach it. The screen can still turn off.",

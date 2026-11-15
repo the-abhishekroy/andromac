@@ -21,7 +21,7 @@ struct MenuView: View {
     }
 
     private func openMain() {
-        openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
+        NSApp.setActivationPolicy(.regular); openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: header
@@ -170,9 +170,9 @@ struct MenuView: View {
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+            Button("Quit and disconnect") { AppDelegate.reallyQuit = true; NSApplication.shared.terminate(nil) }
                 .buttonStyle(.brandCompact).keyboardShortcut("q")
-                .accessibilityHint("Quits Andromac and disconnects from your phone")
+                .accessibilityHint("Fully quits Andromac. Closing the window or pressing Command Q keeps the connection running in the background")
         }
     }
 }
