@@ -165,6 +165,7 @@ final class AppModel: ObservableObject {
         AppDelegate.keepRunning = { [weak self] in self?.connectionEnabled ?? false }
         AppDelegate.onReallyQuit = { [weak self] in self?.tunnel.stop() }
         installLoginLauncher()
+        watchPhoneDrive()
         ejectPhoneDriveIfMounted()          // a drive left over from last time would only show "Server connections interrupted"
         BannerCenter.shared.onReply = { [weak self] key, text in
             self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
@@ -517,6 +518,9 @@ final class AppModel: ObservableObject {
         // Finder labels a network drive with the host name it connected to. Register "Phone.local" (pointing at this Mac's own
         // tunnel doorway) with Bonjour so the drive is called Phone, and keep that registration alive while mounted.
         if nameProc?.isRunning != true {
+            // an orphan from an earlier run (the app was killed) would clash with the new registration over the same name
+            let k = Process(); k.executableURL = URL(fileURLWithPath: "/usr/bin/pkill"); k.arguments = ["-f", "dns-sd -P Phone"]
+            try? k.run(); k.waitUntilExit(); usleep(500_000)
             let n = Process(); n.executableURL = URL(fileURLWithPath: "/usr/bin/dns-sd")
             n.arguments = ["-P", "Phone", "_http._tcp", "local", "8790", "Phone.local", "127.0.0.1"]
             n.standardOutput = Pipe(); n.standardError = Pipe(); try? n.run(); nameProc = n
@@ -546,6 +550,24 @@ final class AppModel: ObservableObject {
                 self?.phoneFilesMounted = ok
                 self?.phoneFilesMessage = ok ? nil : (open ? "Could not mount: \(msg.prefix(120))" : nil)
                 if ok && open { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }
+            }
+        }
+    }
+
+    /// Keeps the Finder drive in step with reality: if the phone is connected and sharing but the drive isn't mounted
+    /// (ejected, mount failed, Finder restarted…), mount it again; if it is mounted but the phone is gone, eject it.
+    private func watchPhoneDrive() {
+        Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.global().async {
+                let m = Process(), pipe = Pipe(); m.executableURL = URL(fileURLWithPath: "/sbin/mount"); m.standardOutput = pipe
+                try? m.run(); m.waitUntilExit()
+                let mounted = (String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").contains(":8790/Phone/ on /Volumes/")
+                DispatchQueue.main.async {
+                    self.phoneFilesMounted = mounted
+                    if !mounted, self.connected, self.phoneFilesEnabled, self.autoMountPhone { self.mountPhoneFiles(open: false) }
+                    if mounted, !self.connected { self.ejectPhoneDriveIfMounted() }
+                }
             }
         }
     }
