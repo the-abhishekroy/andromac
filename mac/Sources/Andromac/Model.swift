@@ -97,8 +97,6 @@ final class AppModel: ObservableObject {
     private let tunnel = TunnelManager()
     private var iconPNG: [String: Data] = [:]
     // phone files (WebDAV through the private network, mounted in Finder as "Phone")
-    /// Mount the phone's storage in Finder by itself whenever the phone connects (and sharing is on).
-    @Published var autoMountPhone: Bool { didSet { UserDefaults.standard.set(autoMountPhone, forKey: "autoMountPhone"); if autoMountPhone { mountPhoneFiles(open: false) } } }
     @Published var phoneFilesEnabled = false
     @Published var phoneFilesWritable = false
     @Published var phoneFilesNeedsPermission = false
@@ -134,14 +132,13 @@ final class AppModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: ["autoMountPhone": true, "skipRunning": true, "nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
+        d.register(defaults: ["skipRunning": true, "nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
         let first = d.bool(forKey: "firstRun")
         syncClipboard = d.bool(forKey: "syncClip")
         terminalAccess = d.bool(forKey: "termOn")
         keepAwake = d.bool(forKey: "keepAwake")
         nativeBanners = d.bool(forKey: "nativeBanners")
         skipRunningApps = d.bool(forKey: "skipRunning")
-        autoMountPhone = d.bool(forKey: "autoMountPhone")
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
@@ -493,9 +490,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyFilesState(_ f: [String: Any]) {
-        let wasEnabled = phoneFilesEnabled
         phoneFilesEnabled = (f["enabled"] as? Bool) ?? false
-        if phoneFilesEnabled && !wasEnabled && autoMountPhone { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.mountPhoneFiles(open: false) } }
         phoneFilesWritable = (f["write"] as? Bool) ?? false
         phoneFilesNeedsPermission = (f["needsPermission"] as? Bool) ?? false
         if !phoneFilesEnabled { phoneFilesMounted = false }
@@ -554,8 +549,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Keeps the Finder drive in step with reality: if the phone is connected and sharing but the drive isn't mounted
-    /// (ejected, mount failed, Finder restarted…), mount it again; if it is mounted but the phone is gone, eject it.
+    /// Keeps the "Phone files" button honest: it shows whether the drive is really mounted, and ejects the drive if the phone
+    /// went away. It never mounts anything by itself; the drive only appears when you press Phone files.
     private func watchPhoneDrive() {
         Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -565,7 +560,6 @@ final class AppModel: ObservableObject {
                 let mounted = (String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").contains(":8790/Phone/ on /Volumes/")
                 DispatchQueue.main.async {
                     self.phoneFilesMounted = mounted
-                    if !mounted, self.connected, self.phoneFilesEnabled, self.autoMountPhone { self.mountPhoneFiles(open: false) }
                     if mounted, !self.connected { self.ejectPhoneDriveIfMounted() }
                 }
             }

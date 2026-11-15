@@ -871,11 +871,6 @@ struct SettingsPage: View {
                       detail: "If WhatsApp, Telegram or Slack is running on this Mac it already notifies you with its own logo, so Andromac won't show a second copy of the phone's notification.",
                       isOn: $m.skipRunningApps)
         }
-        Card(title: "Phone files") {
-            ToggleRow(symbol: "externaldrive.connected.to.line.below", title: "Show the phone in Finder automatically",
-                      detail: "When your phone connects and sharing is on, its storage appears in Finder as the drive Phone, and goes away when the phone disconnects.",
-                      isOn: $m.autoMountPhone)
-        }
         Card(title: "Availability") {
             ToggleRow(symbol: "moon.zzz.fill", title: "Keep this Mac reachable",
                       detail: "Stops the Mac from sleeping when idle so your phone, and ssh from Termux, can always reach it. The screen can still turn off.",
