@@ -102,6 +102,7 @@ final class AppModel: ObservableObject {
     @Published var phoneFilesNeedsPermission = false
     @Published var phoneFilesMounted = false
     @Published var phoneFilesMessage: String?
+    private var nameProc: Process?
     private var phoneTailIP: String?
     private var cursorTimer: Timer?
     private var lastCursor = CGPoint(x: -1, y: -1)
@@ -501,12 +502,15 @@ final class AppModel: ObservableObject {
         tunnel.send("proxy 8790 \(ip):8790")              // Mac 127.0.0.1:8790 -> phone file server, through the private network
         phoneFilesMessage = "Mounting…"
         let pw = davPassword(secret: secret)
-        // Finder labels a network drive with the host it connected to, so use the phone's name (".localhost" always resolves to this Mac's own tunnel).
-        let slug = (phoneName ?? "phone").lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
-            .split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
-        let host = (slug.isEmpty ? "phone" : slug) + ".localhost"
+        // Finder labels a network drive with the host name it connected to. Register "phone.local" (pointing at this Mac's own
+        // tunnel doorway) with Bonjour so the drive is called "Phone" in the sidebar, and keep that registration alive while mounted.
+        if nameProc?.isRunning != true {
+            let n = Process(); n.executableURL = URL(fileURLWithPath: "/usr/bin/dns-sd")
+            n.arguments = ["-P", "Phone", "_http._tcp", "local", "8790", "Phone.local", "127.0.0.1"]
+            n.standardOutput = Pipe(); n.standardError = Pipe(); try? n.run(); nameProc = n
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            let script = "mount volume \"http://\(host):8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
+            let script = "mount volume \"http://Phone.local:8790/Phone/\" as user name \"andromac\" with password \"\(pw)\""
             let p = Process(), err = Pipe()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript"); p.arguments = ["-e", script]
             p.standardError = err; p.standardOutput = Pipe()
@@ -523,7 +527,7 @@ final class AppModel: ObservableObject {
 
     func unmountPhoneFiles() {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil"); p.arguments = ["unmount", "/Volumes/Phone"]
-        try? p.run(); p.waitUntilExit(); phoneFilesMounted = false
+        try? p.run(); p.waitUntilExit(); phoneFilesMounted = false; nameProc?.terminate(); nameProc = nil
     }
 
     func tunnelSignOut() { tunnelIP = nil; tunnel.send("logout") }

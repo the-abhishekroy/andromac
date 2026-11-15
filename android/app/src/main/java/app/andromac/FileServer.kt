@@ -67,13 +67,17 @@ object FileServer {
     }
 
     /** Map a URL path under /Phone to a file, or null if it escapes the storage roots. */
+    private fun parts(path: String): List<String> {
+        val p = path.trim('/').split('/').filter { it.isNotEmpty() }
+        return if (p.firstOrNull() == "Phone") p.drop(1) else p            // "/Phone/..." still works
+    }
+
     private fun resolve(ctx: Context, path: String): File? {
-        val parts = path.trim('/').split('/').filter { it.isNotEmpty() }
-        if (parts.isEmpty() || parts[0] != "Phone") return null
-        if (parts.size == 1) return File("/")                     // virtual root
-        val base = roots(ctx)[parts[1]] ?: return null
+        val parts = parts(path)
+        if (parts.isEmpty()) return File("/")                     // virtual root: the list of storages
+        val base = roots(ctx)[parts[0]] ?: return null
         var f = base
-        for (p in parts.drop(2)) { if (p == ".." || p.contains('/')) return null; f = File(f, p) }
+        for (p in parts.drop(1)) { if (p == ".." || p.contains('/')) return null; f = File(f, p) }
         val canon = f.canonicalFile
         return if (canon.path.startsWith(base.canonicalPath)) canon else null
     }
@@ -146,7 +150,7 @@ object FileServer {
         }
     }
 
-    private fun isRootEntry(ctx: Context, path: String) = path.trim('/').split('/').size <= 2
+    private fun isRootEntry(ctx: Context, path: String) = parts(path).size <= 1
 
     private val httpDate = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply { timeZone = TimeZone.getTimeZone("GMT") }
     private val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -175,17 +179,17 @@ object FileServer {
         drain(req)
         val depth = req.headers["depth"] ?: "1"
         val rts = roots(ctx)
-        val parts = req.path.trim('/').split('/').filter { it.isNotEmpty() }
+        val parts = parts(req.path)
+        val base = req.path.trimEnd('/')
         val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?><D:multistatus xmlns:D=\"DAV:\">")
-        if (parts.isEmpty()) { entry(sb, "/", null, "", true, null); if (depth != "0") entry(sb, "/Phone/", null, "Phone", true, null) }
-        else if (parts[0] != "Phone") return respond(out, 404, "Not Found", "")
-        else if (parts.size == 1) { entry(sb, "/Phone/", null, "Phone", true, null)
-            if (depth != "0") rts.forEach { (n, f) -> entry(sb, "/Phone/$n/", f, n, true, f) } }
-        else {
+        if (parts.isEmpty()) {
+            entry(sb, req.path.ifEmpty { "/" }, null, "Phone", true, null)
+            if (depth != "0") rts.forEach { (n, f) -> entry(sb, "$base/$n/", f, n, true, f) }
+        } else {
             val f = resolve(ctx, req.path) ?: return respond(out, 404, "Not Found", "")
             if (!f.exists()) return respond(out, 404, "Not Found", "")
-            val root = rts[parts[1]]
-            entry(sb, req.path, f, if (parts.size == 2) parts[1] else f.name, f.isDirectory, root)
+            val root = rts[parts[0]]
+            entry(sb, req.path, f, if (parts.size == 1) parts[0] else f.name, f.isDirectory, root)
             if (f.isDirectory && depth != "0") f.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { c ->
                 if (c.name.startsWith("._")) return@forEach
                 entry(sb, req.path.trimEnd('/') + "/" + c.name, c, c.name, c.isDirectory, null)
