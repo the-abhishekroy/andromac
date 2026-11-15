@@ -85,9 +85,6 @@ private struct BannerView: View {
                     }
                     .frame(width: 46, height: 46).background(Color.white.opacity(item.icon == nil ? 0.12 : 0), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    Image(systemName: "iphone.gen3").font(.system(size: 9, weight: .bold)).foregroundStyle(.black)
-                        .frame(width: 19, height: 19).background(Circle().fill(Color(white: 0.96)))
-                        .overlay(Circle().stroke(Color.black, lineWidth: 2)).offset(x: 5, y: 5)
                 }
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {

@@ -23,7 +23,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// App icon (PNG) with a small phone badge in the corner, cached as a file for the notification attachment.
+    /// The app's own icon, cached as a file for the notification attachment (no badge: the subtitle already says it came from the phone).
     private func badgedIcon(bundleKey: String, png: Data?) -> URL? {
         if let u = iconFiles[bundleKey] { return u }
         guard let png, let base = NSImage(data: png) else { return nil }
@@ -31,16 +31,6 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let out = NSImage(size: size)
         out.lockFocus()
         base.draw(in: NSRect(origin: .zero, size: size))
-        let r: CGFloat = 62, c = CGPoint(x: size.width - r - 4, y: r + 4)
-        NSColor.black.setFill(); NSBezierPath(ovalIn: NSRect(x: c.x - r - 5, y: c.y - r - 5, width: 2 * r + 10, height: 2 * r + 10)).fill()
-        NSColor(white: 0.96, alpha: 1).setFill(); NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)).fill()
-        if let sym = NSImage(systemSymbolName: "iphone.gen3", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 70, weight: .semibold)) {
-            let tinted = sym.copy() as! NSImage
-            tinted.lockFocus(); NSColor.black.set(); NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop); tinted.unlockFocus()
-            let h = r * 1.35, w = h * tinted.size.width / max(tinted.size.height, 1)
-            tinted.draw(in: NSRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h))
-        }
         out.unlockFocus()
         guard let tiff = out.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let data = rep.representation(using: .png, properties: [:]) else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("andromac-icon-\(abs(bundleKey.hashValue)).png")

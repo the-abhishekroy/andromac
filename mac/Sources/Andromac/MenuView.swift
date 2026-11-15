@@ -4,6 +4,7 @@ struct MenuView: View {
     @EnvironmentObject var m: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var copiedID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -15,9 +16,12 @@ struct MenuView: View {
         }
         .padding(16)
         .frame(width: 360)
+        .background(Brand.canvas)
+        .preferredColorScheme(.dark)
         .tint(Brand.accent)
-        .animation(.snappy, value: m.connected)
-        .animation(.snappy, value: m.clipboardHistory.count)
+        .animation(Motion.slow(reduce), value: m.connected)
+        .animation(Motion.normal(reduce), value: m.clipboardHistory.count)
+        .animation(Motion.normal(reduce), value: m.uiState)
     }
 
     private func openMain() {
@@ -43,16 +47,24 @@ struct MenuView: View {
                 }
             }
             Text(m.connectionEnabled && m.connected ? "Runs in the background, even when the window is closed." : m.statusDetail)
-                .font(.callout).foregroundStyle(.white.opacity(0.82)).fixedSize(horizontal: false, vertical: true)
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             if m.connectionEnabled && m.connected, let b = m.battery {
-                Label("Phone battery \(b)%\(m.charging ? ", charging" : "")", systemImage: m.charging ? "battery.100percent.bolt" : "battery.75percent")
-                    .font(.callout).foregroundStyle(.white.opacity(0.85))
+                HStack(spacing: 6) {
+                    Image(systemName: m.charging ? "battery.100percent.bolt" : "battery.75percent")
+                    Text("Phone battery")
+                    Text("\(b)%").monospacedDigit().contentTransition(.numericText(value: Double(b)))
+                    if m.charging { Text("charging") }
+                }
+                .font(.callout).foregroundStyle(Brand.dim)
+                .animation(Motion.normal(reduce), value: b)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Phone battery \(b) percent\(m.charging ? ", charging" : "")")
             }
         }
         .padding(16)
         .environment(\.colorScheme, .dark)
-        .background(Brand.heroGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Brand.border))
         .accessibilityElement(children: .contain)
     }
 
@@ -82,7 +94,7 @@ struct MenuView: View {
                         .font(.callout.weight(.semibold)).foregroundStyle(.primary)
                     Spacer(minLength: 4)
                     Text("Fix").font(.callout.weight(.semibold)).foregroundStyle(Brand.warn)
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.dim)
                 }
                 .padding(.horizontal, 12).frame(minHeight: 40)
                 .background(Brand.warn.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -98,7 +110,7 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: symbol).font(.callout.weight(.semibold)).symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint).fixedSize(horizontal: false, vertical: true)
-            Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             if let button { Button(button, action: action).buttonStyle(.brandCompactPrimary) }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -113,10 +125,10 @@ struct MenuView: View {
             HStack {
                 Text("Clipboard").font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Text(m.syncClipboard ? "Syncing" : "Sync off").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(m.syncClipboard ? "Syncing" : "Sync off").font(.caption.weight(.medium)).foregroundStyle(Brand.dim)
             }
             if m.clipboardHistory.isEmpty {
-                Text("Copied text shows up here, on your Mac and your phone.").font(.callout).foregroundStyle(.secondary)
+                Text("Copied text shows up here, on your Mac and your phone.").font(.callout).foregroundStyle(Brand.dim)
                     .fixedSize(horizontal: false, vertical: true).padding(.vertical, 4)
             } else {
                 ForEach(Array(m.clipboardHistory.prefix(3))) { item in
@@ -126,14 +138,14 @@ struct MenuView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: item.sourceSymbol).symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(item.fromPhone ? Brand.accent : .secondary).frame(width: 22)
+                                .foregroundStyle(item.fromPhone ? Brand.accent : Brand.dim).frame(width: 22)
                             ClipThumb(item: item)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: copiedID == item.id ? "checkmark" : "doc.on.doc").font(.callout)
-                                .foregroundStyle(copiedID == item.id ? Brand.accent : .secondary)
+                                .foregroundStyle(copiedID == item.id ? Brand.accent : Brand.dim)
                         }
                         .padding(.horizontal, 10).padding(.vertical, 6).frame(minHeight: 36)
-                        .background(Brand.surfaceRaised.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Brand.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
@@ -155,7 +167,7 @@ struct MenuView: View {
             }
             .buttonStyle(.brand).disabled(!m.connected)
             .accessibilityHint(m.connected ? "Opens your phone's screen in a window" : "Connect your phone first")
-            if let msg = m.screenMessage { Text(msg).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            if let msg = m.screenMessage { Text(msg).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true) }
             Button { openMain() } label: {
                 Label("Open Andromac", systemImage: "macwindow").frame(maxWidth: .infinity, alignment: .center)
             }
@@ -167,7 +179,7 @@ struct MenuView: View {
         HStack {
             if m.signedIn {
                 Text(m.tunnelAccount.isEmpty ? "Private network: signed in" : "Signed in as \(m.tunnelAccount)")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.caption).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             Button("Quit and disconnect") { AppDelegate.reallyQuit = true; NSApplication.shared.terminate(nil) }

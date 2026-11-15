@@ -27,6 +27,32 @@ struct ClipItem: Identifiable {
 
 final class AppModel: ObservableObject {
     @Published var clipboardHistory: [ClipItem] = []
+    /// Don't mirror a phone notification if the same app (WhatsApp, Telegram, Slack…) is running on this Mac and already notifies there.
+    @Published var skipRunningApps: Bool { didSet { UserDefaults.standard.set(skipRunningApps, forKey: "skipRunning") } }
+    private var recentlyShown: [String: Date] = [:]
+    /// True if an equivalent notification was shown in the last few seconds (SMS arrives as both a text message and a notification).
+    private func isDuplicateNotification(_ app: String, _ title: String, _ body: String) -> Bool {
+        let norm: (String) -> String = { String($0.lowercased().filter { !$0.isWhitespace }.prefix(80)) }
+        let now = Date()
+        recentlyShown = recentlyShown.filter { now.timeIntervalSince($0.value) < 12 }
+        let k = norm(body)
+        if k.count >= 3, recentlyShown[k] != nil { return true }
+        if k.count >= 3 { recentlyShown[k] = now }
+        return false
+    }
+    /// The Mac app that already notifies for this phone app, if it is running (matched by name or well-known bundle id).
+    private func runningMacApp(for phoneApp: String, pkg: String) -> String? {
+        let ids: [String: String] = ["com.whatsapp": "net.whatsapp.WhatsApp", "org.telegram.messenger": "ru.keepcoder.Telegram",
+            "com.Slack": "com.tinyspeck.slackmacgap", "com.slack": "com.tinyspeck.slackmacgap", "com.microsoft.teams": "com.microsoft.teams2",
+            "com.discord": "com.hnc.Discord", "org.thoughtcrime.securesms": "org.whispersystems.signal-desktop",
+            "com.facebook.orca": "com.facebook.archon", "com.linkedin.android": "com.linkedin.LinkedIn"]
+        let name = phoneApp.lowercased()
+        return NSWorkspace.shared.runningApplications.first { r in
+            guard r.activationPolicy != .prohibited else { return false }
+            if let id = ids[pkg], r.bundleIdentifier == id { return true }
+            return (r.localizedName ?? "").lowercased() == name
+        }?.localizedName
+    }
     /// Off (default): Andromac draws its own banners with the real app icon on the left. On: macOS notification banners.
     @Published var nativeBanners: Bool { didSet { UserDefaults.standard.set(nativeBanners, forKey: "nativeBanners") } }
     /// Stops the Mac from going to sleep on idle, so the phone (and `ssh m5`) can always reach it. The display can still sleep.
@@ -92,17 +118,19 @@ final class AppModel: ObservableObject {
     let secret = loadOrCreateSecret()
     let server: Server
     private var macNotifs: MacNotifications!
+    private var widgetBridge: WidgetBridge?
     private var lastClip = NSPasteboard.general.changeCount
     @Published private(set) var pairingURL = ""
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: ["nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
+        d.register(defaults: ["skipRunning": true, "nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
         let first = d.bool(forKey: "firstRun")
         syncClipboard = d.bool(forKey: "syncClip")
         terminalAccess = d.bool(forKey: "termOn")
         keepAwake = d.bool(forKey: "keepAwake")
         nativeBanners = d.bool(forKey: "nativeBanners")
+        skipRunningApps = d.bool(forKey: "skipRunning")
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
@@ -133,6 +161,7 @@ final class AppModel: ObservableObject {
         if first { d.set(false, forKey: "firstRun"); if Bundle.main.bundlePath.hasSuffix(".app") { launchAtLogin = true } }
 
         macNotifs = MacNotifications(server: server)
+        widgetBridge = WidgetBridge(model: self)
         macNotifs.enabled = { [weak self] in self?.mirrorMacNotifications ?? true }
         macNotifs.onAccess = { [weak self] ok in self?.hasFullDiskAccess = ok }
         macNotifs.start()
@@ -163,6 +192,13 @@ final class AppModel: ObservableObject {
             let text = data["text"] as? String ?? ""
             let pkg = data["pkg"] as? String ?? app
             if let b64 = data["icon"] as? String, let png = Data(base64Encoded: b64) { iconPNG[pkg] = png }
+            if let macApp = skipRunningApps ? runningMacApp(for: app, pkg: pkg) : nil {
+                // WhatsApp (etc.) is open on this Mac and shows its own notification with its own logo: don't show a second one.
+                record("bell.fill", "\(app)\(title.isEmpty ? "" : " · \(title)")", "Shown by \(macApp) on this Mac")
+                if let otp = data["otp"] as? String { gotOTP(otp, from: app) }
+                return
+            }
+            if isDuplicateNotification(app, title, text) { return }
             if nativeBanners {
                 Notifier.shared.post(title: title.isEmpty ? app : title, body: text, subtitle: "\(app) · Phone",
                                      key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false, appName: app)
@@ -176,7 +212,7 @@ final class AppModel: ObservableObject {
         case "sms":
             let from = data["from"] as? String ?? "SMS"
             let body = data["body"] as? String ?? ""
-            Notifier.post(title: "SMS · \(from)", body: body)
+            if !isDuplicateNotification("SMS", from, body) { Notifier.post(title: "SMS · \(from)", body: body) }
             record("message.fill", "SMS · \(from)", body)
             if let otp = data["otp"] as? String { gotOTP(otp, from: from) }
         case "clip_sync":

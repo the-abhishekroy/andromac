@@ -41,6 +41,12 @@ struct AndromacApp: App {
         }
         .defaultSize(width: 1000, height: 720)
         .windowToolbarStyle(.unified)
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button("Quick Actions…") { NotificationCenter.default.post(name: .openPalette, object: nil) }
+                    .keyboardShortcut("k", modifiers: .command)
+            }
+        }
 
         MenuBarExtra {
             MenuView().environmentObject(model)

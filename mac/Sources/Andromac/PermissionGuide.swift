@@ -76,7 +76,7 @@ private struct GuideView: View {
                 IconBadge(symbol: granted ? "checkmark.seal.fill" : "lock.shield.fill", tint: granted ? Brand.accent : Brand.warn, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow Andromac").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
-                    Text("Privacy & Security \u{203A} \(title)").font(.callout).foregroundStyle(.secondary)
+                    Text("Privacy & Security \u{203A} \(title)").font(.callout).foregroundStyle(Brand.dim)
                 }
             }
             ForEach(Array(steps.enumerated()), id: \.offset) { i, t in
@@ -96,9 +96,9 @@ private struct GuideView: View {
                             .onDrag { NSItemProvider(object: Bundle.main.bundleURL as NSURL) }
                             .accessibilityLabel("Andromac app icon").accessibilityHint("Drag into the Full Disk Access list, or use Show Andromac in Finder")
                         Text("Andromac").font(.callout.weight(.medium))
-                        Text("Drag me into the list").font(.caption).foregroundStyle(.secondary)
+                        Text("Drag me into the list").font(.caption).foregroundStyle(Brand.dim)
                     }
-                    .padding(14).background(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5])).foregroundStyle(.secondary))
+                    .padding(14).background(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5])).foregroundStyle(Brand.dim))
                     Spacer()
                 }
                 Button("Show Andromac in Finder") { m.revealApp() }.buttonStyle(.brandCompact)
@@ -106,12 +106,13 @@ private struct GuideView: View {
             Divider()
             HStack {
                 if granted { Label("Done. Andromac is allowed.", systemImage: "checkmark.circle.fill").font(.callout.weight(.semibold)).foregroundStyle(Brand.accent) }
-                else { Label("Waiting for you\u{2026}", systemImage: "hourglass").font(.callout).foregroundStyle(.secondary) }
+                else { Label("Waiting for you\u{2026}", systemImage: "hourglass").font(.callout).foregroundStyle(Brand.dim) }
                 Spacer()
                 if kind == .fullDisk || kind == .screen { Button("Restart Andromac") { m.restartApp() }.buttonStyle(.brandCompact) }
                 Button(granted ? "Close" : "Later", action: close).buttonStyle(.brandCompactPrimary).keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20).frame(width: 400).tint(Brand.accent)
+        .padding(20).frame(width: 400).background(Brand.canvas).preferredColorScheme(.dark).tint(Brand.accent)
+        .animation(Motion.normal(false), value: granted)
     }
 }

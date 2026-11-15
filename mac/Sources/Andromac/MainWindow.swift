@@ -5,89 +5,206 @@ enum Tab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var icon: String {
         switch self {
-        case .home: return "house.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .screen: return "display"
-        case .activity: return "bell.badge.fill"; case .network: return "network"; case .settings: return "gearshape.fill"
+        case .home: return "house"; case .clipboard: return "doc.on.clipboard"; case .screen: return "display"
+        case .activity: return "bell.badge"; case .network: return "network"; case .settings: return "gearshape"
         }
     }
+    var iconSelected: String { icon + ".fill" }
+    var shortcutKey: KeyEquivalent { KeyEquivalent(Character("\((Tab.allCases.firstIndex(of: self) ?? 0) + 1)")) }
+}
+
+extension Notification.Name {
+    static let openPalette = Notification.Name("andromac.openPalette")
 }
 
 struct MainWindow: View {
     @EnvironmentObject var m: AppModel
     @AppStorage("selectedTab") private var tabRaw = Tab.home.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @Namespace private var selectionNS
+    @State private var showPalette = false
+    @State private var scrollTarget: String?
     private var tab: Tab { Tab(rawValue: tabRaw) ?? .home }
-    private var selection: Binding<Tab?> {
-        Binding(get: { tab }, set: { if let t = $0 { tabRaw = t.rawValue } })
+
+    private func select(_ t: Tab, anchor: String? = nil) {
+        withAnimation(Motion.slow(reduce)) { tabRaw = t.rawValue }
+        scrollTarget = anchor
     }
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                VStack(spacing: 4) {
-                    ForEach(Tab.allCases) { t in
-                        let sel = t == tab
-                        Button { tabRaw = t.rawValue } label: {
-                            Label(t.rawValue, systemImage: t.icon)
-                                .symbolRenderingMode(.hierarchical)
-                                .font(.body.weight(sel ? .semibold : .regular))
-                                .foregroundStyle(sel ? Brand.accent : Color.primary)
-                                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-                                .background(sel ? Brand.accent.opacity(0.16) : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .contentShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(t.rawValue)
-                        .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
-                    }
-                }
-                .padding(.horizontal, 12).padding(.top, 4)
-                Spacer(minLength: 0)
-            }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 250)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                HStack(spacing: 10) {
-                    OrbitLogo(size: 34)
-                    Text("Andromac").font(.title3.weight(.semibold))
-                    Spacer()
-                }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
-                .accessibilityElement(children: .combine)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(m.statusShort).font(.callout.weight(.semibold))
-                        Text(m.connected ? (m.phoneName ?? "Phone") : "Background connection")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: m.statusSymbol).symbolRenderingMode(.hierarchical).foregroundStyle(m.statusTintAdaptive)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Brand.surfaceRaised.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(12)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Connection status: \(m.statusShort)")
-            }
-        } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    switch tab {
-                    case .home: HomePage(go: { tabRaw = $0.rawValue })
-                    case .clipboard: ClipboardPage()
-                    case .screen: ScreenPage()
-                    case .activity: ActivityPage()
-                    case .network: NetworkPage()
-                    case .settings: SettingsPage()
-                    }
-                }
-                .padding(28).frame(maxWidth: 800, alignment: .leading).frame(maxWidth: .infinity)
-            }
-            .background(Brand.canvas)
-            .navigationTitle(tab.rawValue)
+        HStack(spacing: 0) {
+            sidebar.frame(width: 232)
+            Rectangle().fill(Brand.border).frame(width: 1)
+            detail
         }
+        .background(Brand.canvas.ignoresSafeArea())
         .frame(minWidth: 900, minHeight: 640)
         .tint(Brand.accent)
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showPalette) {
+            CommandPalette(commands: paletteCommands, close: { showPalette = false })
+                .environmentObject(m)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPalette)) { _ in showPalette = true }
+        .onChange(of: m.connected) { _, now in
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: now ? "Phone connected" : "Phone disconnected",
+                                            .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
+
+    private var paletteCommands: [PaletteCommand] {
+        [
+            PaletteCommand(title: m.connectionEnabled ? "Turn connection off" : "Turn connection on", symbol: "power", hint: "Stay connected in the background") {
+                m.connectionEnabled.toggle() },
+            PaletteCommand(title: "View and control phone", symbol: "iphone.gen3", hint: m.connected ? "Open the phone screen" : "Connect your phone first", enabled: m.connected) {
+                m.requestPhoneScreen() },
+            PaletteCommand(title: "Clipboard history", symbol: "doc.on.clipboard", hint: "Go to Clipboard") { select(.clipboard) },
+            PaletteCommand(title: "Terminal help", symbol: "terminal", hint: "ssh m5 and ssh f14 shortcuts") { select(.settings, anchor: "terminal") },
+            PaletteCommand(title: "Settings", symbol: "gearshape", hint: "Go to Settings") { select(.settings) },
+            PaletteCommand(title: "Quit and disconnect", symbol: "xmark.circle", hint: "Fully quit Andromac", destructive: true) {
+                AppDelegate.reallyQuit = true; NSApplication.shared.terminate(nil) },
+        ]
+    }
+
+    // MARK: sidebar
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DeviceHeader()
+                .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 12)
+            VStack(spacing: 2) {
+                ForEach(Tab.allCases) { t in sidebarRow(t) }
+            }
+            .padding(.horizontal, 12)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Sections")
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                OrbitLogo(size: 24)
+                Text("Andromac").font(.footnote.weight(.semibold)).foregroundStyle(Brand.dim)
+                Spacer()
+                Text("\u{2318}K").font(.footnote.weight(.medium)).foregroundStyle(Brand.dim)
+                    .padding(.horizontal, 6).frame(minHeight: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Brand.border))
+                    .accessibilityHidden(true)
+            }
+            .padding(16)
+        }
+        .background(Brand.canvas)
+    }
+
+    private func sidebarRow(_ t: Tab) -> some View {
+        SidebarRow(tab: t, selected: t == tab, ns: selectionNS) { select(t) }
+    }
+
+    // MARK: detail
+
+    private var detail: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(tab.rawValue).font(.largeTitle.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                        .padding(.bottom, 4)
+                    Group {
+                        switch tab {
+                        case .home: HomePage(go: { select($0, anchor: $1) })
+                        case .clipboard: ClipboardPage()
+                        case .screen: ScreenPage()
+                        case .activity: ActivityPage()
+                        case .network: NetworkPage()
+                        case .settings: SettingsPage()
+                        }
+                    }
+                }
+                .id(tab)
+                .transition(.opacity)
+                .padding(32).frame(maxWidth: 820, alignment: .leading).frame(maxWidth: .infinity)
+            }
+            .onChange(of: scrollTarget) { _, id in
+                guard let id else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    withAnimation(Motion.slow(reduce)) { proxy.scrollTo(id, anchor: .top) }
+                    scrollTarget = nil
+                }
+            }
+        }
+        .animation(Motion.normal(reduce), value: tabRaw)
+        .background(Brand.canvas)
+    }
+}
+
+struct SidebarRow: View {
+    let tab: Tab, selected: Bool, ns: Namespace.ID
+    let action: () -> Void
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? tab.iconSelected : tab.icon).font(.body).frame(width: 22)
+                    .foregroundStyle(selected ? Brand.accent : Color.primary)
+                Text(tab.rawValue).font(.body.weight(selected ? .semibold : .regular)).foregroundStyle(.primary)
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .background {
+                ZStack {
+                    if hover && !selected { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Brand.surface) }
+                    if selected {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Brand.surfaceRaised)
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(Brand.accent).frame(width: 3, height: 18).padding(.leading, 4)
+                            }
+                            .matchedGeometryEffect(id: "sel", in: ns)
+                    }
+                }
+            }
+            .focusRing(focused, radius: 10)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(tab.shortcutKey, modifiers: .command)
+        .onHover { h in withAnimation(Motion.fast(reduce)) { hover = h } }
+        .accessibilityLabel(tab.rawValue)
+        .accessibilityHint("Command \(tab.shortcutKey.character)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Phone name, battery and status dot at the top of the sidebar.
+struct DeviceHeader: View {
+    @EnvironmentObject var m: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: m.connected ? "iphone.gen3" : "iphone.gen3.slash").font(.title3)
+                .foregroundStyle(m.connected ? Brand.accent : Brand.dim).frame(width: 40, height: 40)
+                .background(Brand.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(m.connected ? (m.phoneName ?? "Your phone") : "No phone").font(.headline).lineLimit(1)
+                HStack(spacing: 6) {
+                    Circle().fill(m.statusTintAdaptive).frame(width: 8, height: 8)
+                    Text(m.statusShort).font(.footnote).foregroundStyle(Brand.dim).lineLimit(1)
+                    if m.connected, let b = m.battery {
+                        Text("\u{00B7}").foregroundStyle(Brand.dim)
+                        Image(systemName: m.charging ? "bolt.fill" : "battery.75percent").font(.footnote).foregroundStyle(Brand.dim)
+                        Text("\(b)%").font(.footnote.monospacedDigit()).foregroundStyle(Brand.dim)
+                            .contentTransition(.numericText(value: Double(b)))
+                    }
+                }
+                .animation(Motion.normal(reduce), value: m.battery)
+                .animation(Motion.normal(reduce), value: m.connected)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Brand.border))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(m.connected ? (m.phoneName ?? "Your phone") : "No phone connected")
+        .accessibilityValue("\(m.statusShort)\(m.connected && m.battery != nil ? ", battery \(m.battery!) percent\(m.charging ? ", charging" : "")" : "")")
     }
 }
 
@@ -95,16 +212,40 @@ struct MainWindow: View {
 
 struct EmptyState: View {
     let symbol: String, title: String, message: String
+    var action: (String, () -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @State private var shown = false
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol).font(.largeTitle).symbolRenderingMode(.hierarchical).foregroundStyle(Brand.accent)
+            Image(systemName: symbol).font(.title).symbolRenderingMode(.hierarchical).foregroundStyle(Brand.accent)
+                .frame(width: 64, height: 64).background(Brand.surfaceRaised, in: Circle())
+                .scaleEffect(shown || reduce ? 1 : 0.6).opacity(shown || reduce ? 1 : 0)
                 .accessibilityHidden(true)
             Text(title).font(.headline)
-            Text(message).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(message).font(.callout).foregroundStyle(Brand.dim).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 420)
+            if let action { Button(action.0, action: action.1).buttonStyle(.brandCompact).padding(.top, 4) }
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 28)
+        .frame(maxWidth: .infinity).padding(.vertical, 24)
         .accessibilityElement(children: .combine)
+        .onAppear { withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { shown = true } }
+    }
+}
+
+/// Pressable surface card used for Home tiles.
+struct TileButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var focused
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    func makeBody(configuration: Configuration) -> some View {
+        let r = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        configuration.label
+            .background(configuration.isPressed ? Brand.surfaceRaised : Brand.surface, in: r)
+            .overlay(r.strokeBorder(Brand.border))
+            .animation(Motion.fast(reduce), value: configuration.isPressed)
+            .opacity(enabled ? 1 : 0.5)
+            .focusRing(focused, radius: 16)
+            .contentShape(r)
     }
 }
 
@@ -114,81 +255,88 @@ struct ActionTile: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
                 IconBadge(symbol: icon, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.body.weight(.semibold)).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                    Text(subtitle).font(.callout).foregroundStyle(Brand.dim).multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
             }
-            .padding(16).frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(Brand.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Brand.border))
-            .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
-            .contentShape(RoundedRectangle(cornerRadius: 18))
+            .padding(16).frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
         }
-        .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.55)
+        .buttonStyle(TileButtonStyle()).disabled(!enabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title).accessibilityValue(subtitle)
         .accessibilityAddTraits(.isButton)
     }
 }
 
-// MARK: Hero
+// MARK: Device card
 
-struct ConnectionHero: View {
+struct DeviceCard: View {
     @EnvironmentObject var m: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    let go: (Tab, String?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 20) {
-                OrbitLogo(size: 84, pulsing: m.uiState == .connected)
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(m.statusShort, systemImage: m.statusSymbol)
-                        .font(.caption.weight(.bold)).textCase(.uppercase)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(m.statusTint)
-                    Text(m.statusTitle).font(.title.weight(.semibold)).foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(m.statusDetail).font(.callout).foregroundStyle(.white.opacity(0.8))
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    StatusChip()
+                    Text(m.statusTitle).font(.title.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text(m.statusDetail).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
                 VStack(spacing: 6) {
                     MasterSwitch()
-                    Text(m.connectionEnabled ? "On" : "Off").font(.callout.weight(.semibold)).foregroundStyle(.white)
+                    Text(m.connectionEnabled ? "On" : "Off").font(.callout.weight(.semibold))
+                        .contentTransition(.opacity)
                 }
                 .accessibilityElement(children: .contain)
             }
-            Divider().overlay(.white.opacity(0.15))
-            HStack(spacing: 14) {
-                Label("Runs in the background, even when this window is closed", systemImage: "moon.stars.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.callout).foregroundStyle(.white.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if m.connected, let b = m.battery {
-                    Label("\(b)%\(m.charging ? " charging" : "")", systemImage: m.charging ? "battery.100percent.bolt" : "battery.75percent")
-                        .font(.callout.weight(.medium)).foregroundStyle(.white.opacity(0.9))
-                        .accessibilityLabel("Phone battery \(b) percent\(m.charging ? ", charging" : "")")
+            if m.uiState == .problem {
+                HStack(spacing: 10) {
+                    Label("Check the private network", systemImage: "exclamationmark.triangle.fill").font(.callout.weight(.semibold)).foregroundStyle(Brand.danger)
+                    Spacer()
+                    Button("Open Network") { go(.network, nil) }.buttonStyle(.brandCompact)
                 }
+                .padding(12).background(Brand.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .transition(.opacity)
+            }
+            Rectangle().fill(Brand.border).frame(height: 1)
+            HStack(spacing: 24) {
+                stat("Battery", m.connected && m.battery != nil ? AnyView(batteryText) : AnyView(Text("\u{2013}").foregroundStyle(Brand.dim)))
+                stat("Network", AnyView(Text(m.signedIn ? "Private network" : "Not connected").foregroundStyle(m.signedIn ? Color.primary : Brand.dim)))
+                stat("Background", AnyView(Text("Keeps running").foregroundStyle(.primary)))
+                Spacer(minLength: 0)
             }
         }
-        .padding(24)
-        .environment(\.colorScheme, .dark)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Brand.heroGradient)
-                .overlay(alignment: .topTrailing) {
-                    Circle().fill(Brand.green.opacity(0.0)).frame(width: 1, height: 1)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.12)))
-        .shadow(color: Brand.navy.opacity(0.35), radius: 18, y: 8)
+        .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Brand.border))
+        .animation(Motion.normal(reduce), value: m.uiState)
         .accessibilityElement(children: .contain)
+    }
+
+    private var batteryText: some View {
+        let b = m.battery ?? 0
+        return HStack(spacing: 4) {
+            Image(systemName: m.charging ? "battery.100percent.bolt" : "battery.75percent").foregroundStyle(Brand.accent)
+            Text("\(b)%").monospacedDigit().contentTransition(.numericText(value: Double(b)))
+                .animation(Motion.normal(reduce), value: b)
+            if m.charging { Text("charging").foregroundStyle(Brand.dim) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Phone battery \(b) percent\(m.charging ? ", charging" : "")")
+    }
+
+    private func stat(_ label: String, _ value: AnyView) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.footnote).foregroundStyle(Brand.dim)
+            value.font(.callout.weight(.medium))
+        }
     }
 }
 
@@ -196,11 +344,32 @@ struct ConnectionHero: View {
 
 struct HomePage: View {
     @EnvironmentObject var m: AppModel
-    let go: (Tab) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    let go: (Tab, String?) -> Void
 
     var body: some View {
-        ConnectionHero()
-        if !m.setupDone { SetupChecklist() } else { Dashboard(go: go) }
+        VStack(alignment: .leading, spacing: 16) {
+            DeviceCard(go: go)
+            if m.macSharing {
+                Label("Your phone is viewing and controlling this Mac", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.callout.weight(.semibold)).foregroundStyle(Brand.danger)
+                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Brand.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Brand.border))
+                    .transition(.opacity)
+            }
+            if m.setupDone {
+                Label { Text("All set").font(.callout.weight(.semibold)) + Text("  Sign-in, pairing and permissions are done.").font(.callout).foregroundColor(Brand.dim) }
+                    icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.accent) }
+                    .padding(.horizontal, 4).transition(.opacity)
+                    .accessibilityElement(children: .combine)
+            } else {
+                SetupChecklist().transition(.opacity)
+            }
+            Dashboard(go: go)
+        }
+        .animation(Motion.slow(reduce), value: m.setupDone)
+        .animation(Motion.normal(reduce), value: m.macSharing)
     }
 }
 
@@ -218,26 +387,26 @@ struct SetupChecklist: View {
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: Double(doneCount), total: 3).tint(Brand.green)
                     .accessibilityLabel("Setup progress").accessibilityValue("\(doneCount) of 3 steps done")
-                Text("\(doneCount) of 3 done").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("\(doneCount) of 3 done").font(.caption.weight(.medium)).foregroundStyle(Brand.dim)
             }
             VStack(alignment: .leading, spacing: 4) {
                 step(1, "Sign in to the private network", "Gives your phone a safe path to this Mac, from any network.", done: s1) {
                     switch m.uiState {
                     case .signIn:
                         Text("Andromac has its own private network built in, so you don't need the Tailscale app. Sign in with the same account on your Mac and your phone.")
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
                         Button { m.openTunnelLogin() } label: { Label("Sign in", systemImage: "person.crop.circle.badge.checkmark") }.buttonStyle(.brand)
                     case .off:
-                        Text("The connection is switched off. Turn it on above to continue.").font(.callout).foregroundStyle(.secondary)
+                        Text("The connection is switched off. Turn it on above to continue.").font(.callout).foregroundStyle(Brand.dim)
                     case .problem:
                         Text(m.statusDetail).font(.callout).foregroundStyle(Brand.danger).fixedSize(horizontal: false, vertical: true)
                     default:
-                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Starting secure connection…").font(.callout).foregroundStyle(.secondary) }
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Starting secure connection…").font(.callout).foregroundStyle(Brand.dim) }
                     }
                 }
                 step(2, "Connect your phone", "Scan a QR code with your phone's camera.", done: s2) {
                     if m.signedIn { PairCard(embedded: true) }
-                    else { Text("Available once you've signed in.").font(.callout).foregroundStyle(.secondary) }
+                    else { Text("Available once you've signed in.").font(.callout).foregroundStyle(Brand.dim) }
                 }
                 step(3, "Allow permissions", "So notifications, clipboard and screen features work.", done: s3, last: true) {
                     PermissionList(onlyMissing: true)
@@ -254,7 +423,7 @@ struct SetupChecklist: View {
                 ZStack {
                     Circle().fill(done ? Brand.green : (isActive ? Brand.accent.opacity(0.18) : Brand.surfaceRaised)).frame(width: 32, height: 32)
                     if done { Image(systemName: "checkmark").font(.callout.weight(.bold)).foregroundStyle(Brand.navy) }
-                    else { Text("\(n)").font(.callout.weight(.bold)).foregroundStyle(isActive ? Brand.accent : Color.secondary) }
+                    else { Text("\(n)").font(.callout.weight(.bold)).foregroundStyle(isActive ? Brand.accent : Brand.dim) }
                 }
                 if !last { Rectangle().fill(Brand.border).frame(width: 2).frame(maxHeight: .infinity).padding(.vertical, 4) }
             }
@@ -264,7 +433,7 @@ struct SetupChecklist: View {
                         Text(title).font(.body.weight(.semibold))
                         if done { Text("Done").font(.caption.weight(.semibold)).foregroundStyle(Brand.accent) }
                     }
-                    Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(minHeight: 32, alignment: .leading)
                 if isActive { content().padding(.bottom, 8) }
@@ -305,47 +474,62 @@ struct PermissionList: View {
 
 struct Dashboard: View {
     @EnvironmentObject var m: AppModel
-    let go: (Tab) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    let go: (Tab, String?) -> Void
 
     var body: some View {
         if let msg = m.screenMessage {
-            Label(msg, systemImage: "info.circle.fill").font(.callout).fixedSize(horizontal: false, vertical: true)
+            Label(msg, systemImage: "info.circle.fill").font(.callout).foregroundStyle(Brand.info).fixedSize(horizontal: false, vertical: true)
                 .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Brand.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Brand.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .transition(.opacity)
         }
-        Grid(horizontalSpacing: 16, verticalSpacing: 16) {
-            GridRow {
-                ActionTile(icon: "iphone.gen3", title: "View and control phone",
-                           subtitle: m.connected ? "Open your phone's screen in a window" : "Connect your phone first",
-                           enabled: m.connected) { m.requestPhoneScreen() }
-                ActionTile(icon: "display", title: "Phone controls this Mac",
-                           subtitle: m.macSharing ? "Active. Click to stop sharing" : "Start it from the phone, you approve here") {
-                    if m.macSharing { m.stopMacShare(notify: true) } else { go(.screen) }
+        SectionHeader("Quick actions")
+        HStack(spacing: 12) {
+            ActionTile(icon: "iphone.gen3", title: "View and control phone",
+                       subtitle: m.connected ? "Open your phone's screen in a window" : "Connect your phone first",
+                       enabled: m.connected) { m.requestPhoneScreen() }
+            ActionTile(icon: "doc.on.clipboard", title: "Clipboard history",
+                       subtitle: m.clipboardHistory.isEmpty ? "Nothing copied yet" : "\(m.clipboardHistory.count) saved items") { go(.clipboard, nil) }
+            ActionTile(icon: "terminal", title: "Terminal help",
+                       subtitle: "Two shortcuts: ssh m5 and ssh f14") { go(.settings, "terminal") }
+        }
+        SectionHeader("Recent")
+        recent
+        if !m.connected { PairAnotherCard() }
+    }
+
+    private var recent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Card(title: "Last copied", padding: 16) {
+                if let item = m.clipboardHistory.first {
+                    ClipRow(item: item, compact: true).id(item.id).transition(.opacity)
+                } else if m.uiState == .starting {
+                    VStack(alignment: .leading, spacing: 8) { SkeletonBar(); SkeletonBar(width: 120) }.padding(.vertical, 6)
+                } else {
+                    Text("Copy something on either device and it shows up here.").font(.callout).foregroundStyle(Brand.dim)
+                        .fixedSize(horizontal: false, vertical: true).padding(.vertical, 4)
                 }
+                Button("See all") { go(.clipboard, nil) }.buttonStyle(.brandCompact)
             }
-        }
-        Card(title: "Clipboard", subtitle: "Copied text moves between your Mac and phone automatically.") {
-            if m.clipboardHistory.isEmpty {
-                Text("Nothing copied yet. Copy something on either device and it shows up here.").font(.callout).foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(m.clipboardHistory.prefix(3))) { item in
-                        ClipRow(item: item, compact: true)
-                        if item.id != m.clipboardHistory.prefix(3).last?.id { Divider() }
+            Card(title: "Recent activity", padding: 16) {
+                if m.events.isEmpty {
+                    if m.uiState == .starting {
+                        VStack(alignment: .leading, spacing: 8) { SkeletonBar(); SkeletonBar(width: 160); SkeletonBar(width: 100) }.padding(.vertical, 6)
+                    } else {
+                        Text("Phone notifications, codes and screen sessions show up here.").font(.callout).foregroundStyle(Brand.dim)
+                            .fixedSize(horizontal: false, vertical: true).padding(.vertical, 4)
+                    }
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(m.events.prefix(3)) { e in EventRow(e: e).listTransition(reduce) }
                     }
                 }
-            }
-            Button("See all clipboard history") { go(.clipboard) }.buttonStyle(.brandCompact)
-        }
-        if !m.events.isEmpty {
-            Card(title: "Recent activity") {
-                VStack(spacing: 12) {
-                    ForEach(m.events.prefix(3)) { e in EventRow(e: e) }
-                }
-                Button("See all activity") { go(.activity) }.buttonStyle(.brandCompact)
+                Button("See all") { go(.activity, nil) }.buttonStyle(.brandCompact)
             }
         }
-        if !m.connected { PairAnotherCard() }
+        .animation(Motion.normal(reduce), value: m.events.count)
+        .animation(Motion.normal(reduce), value: m.clipboardHistory.first?.id)
     }
 }
 
@@ -371,12 +555,11 @@ struct PairCard: View {
         let content = HStack(alignment: .center, spacing: 24) {
             Group {
                 if m.pairingURL.isEmpty {
-                    VStack(spacing: 8) { ProgressView(); Text("Preparing secure link…").font(.callout).foregroundStyle(.secondary) }
+                    VStack(spacing: 8) { ProgressView(); Text("Preparing secure link…").font(.callout).foregroundStyle(Brand.dim) }
                         .frame(width: 190, height: 190)
                 } else if let img = QR.image(m.pairingURL, size: 190) {
                     Image(nsImage: img).interpolation(.none).resizable().frame(width: 190, height: 190)
                         .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
                         .accessibilityLabel("Pairing QR code").accessibilityHint("Scan with your phone's camera. Or use the Copy link button.")
                 }
             }
@@ -410,6 +593,8 @@ struct ClipRow: View {
     var compact = false
     @State private var copied = false
     @State private var hover = false
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
         Button {
@@ -421,7 +606,7 @@ struct ClipRow: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         SourceBadge(item: item)
-                        Text(item.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+                        Text(item.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(Brand.dim)
                     }
                     if let d = item.image, let img = NSImage(data: d) {
                         Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 150, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 8))
@@ -432,11 +617,13 @@ struct ClipRow: View {
                     }
                 }
                 Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    .font(.callout.weight(.semibold)).foregroundStyle(copied ? Brand.accent : .secondary)
+                    .font(.callout.weight(.semibold)).foregroundStyle(copied ? Brand.accent : Brand.dim)
                     .frame(minHeight: 32)
             }
             .padding(.vertical, 10).padding(.horizontal, 8)
             .background(hover ? Brand.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .focusRing(focused, radius: 10)
+            .animation(Motion.fast(reduce), value: hover)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -452,6 +639,7 @@ struct ClipboardPage: View {
     @EnvironmentObject var m: AppModel
     @State private var query = ""
     @State private var confirmClear = false
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     private var items: [ClipItem] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -465,15 +653,15 @@ struct ClipboardPage: View {
                       detail: "Copy on your Mac, paste on your phone, and the other way around. It happens automatically in real time.",
                       isOn: $m.syncClipboard)
             Label("Items also appear in your phone's clipboard history. Passwords copied from password managers are never recorded.", systemImage: "lock.shield")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
         }
         HStack(spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                Image(systemName: "magnifyingglass").foregroundStyle(Brand.dim).accessibilityHidden(true)
                 TextField("Search clipboard history", text: $query).textFieldStyle(.plain)
                     .accessibilityLabel("Search clipboard history")
                 if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 28, height: 28) }
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.dim).frame(width: 28, height: 28) }
                         .buttonStyle(.plain).accessibilityLabel("Clear search")
                 }
             }
@@ -495,10 +683,14 @@ struct ClipboardPage: View {
             Card(padding: 12) {
                 VStack(spacing: 0) {
                     ForEach(items) { item in
-                        ClipRow(item: item)
-                        if item.id != items.last?.id { Divider().padding(.horizontal, 8) }
+                        VStack(spacing: 0) {
+                            ClipRow(item: item)
+                            if item.id != items.last?.id { Divider().overlay(Brand.border).padding(.horizontal, 8) }
+                        }
+                        .listTransition(reduce)
                     }
                 }
+                .animation(Motion.normal(reduce), value: items.map(\.id))
             }
         }
     }
@@ -518,11 +710,11 @@ struct ScreenPage: View {
             HStack(spacing: 12) {
                 Button { m.requestPhoneScreen() } label: { Label("View and control phone", systemImage: "iphone.gen3") }
                     .buttonStyle(.brand).disabled(!m.connected)
-                if !m.connected { Text("Connect your phone first").font(.callout).foregroundStyle(.secondary) }
+                if !m.connected { Text("Connect your phone first").font(.callout).foregroundStyle(Brand.dim) }
             }
-            if let msg = m.screenMessage { Label(msg, systemImage: "info.circle.fill").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            if let msg = m.screenMessage { Label(msg, systemImage: "info.circle.fill").font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true) }
             Text("The phone asks you to approve every time, and needs Andromac turned on in Accessibility to accept taps.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
         }
         Card(title: "Control this Mac from your phone") {
             if m.macSharing {
@@ -531,9 +723,9 @@ struct ScreenPage: View {
                 Button("Stop sharing") { m.stopMacShare(notify: true) }.buttonStyle(.brandDestructive)
             } else {
                 Text("On your phone open Andromac, then Screen, then View and control Mac. A prompt appears here and nothing is shared until you click Allow.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
+            Divider().overlay(Brand.border)
             PermissionRow(symbol: "record.circle", title: "Screen Recording", detail: "Lets your phone see this Mac", ok: m.screenAccess, action: { m.guide(.screen) })
             PermissionRow(symbol: "hand.tap.fill", title: "Accessibility", detail: "Lets your phone click and type", ok: m.axAccess, action: { m.guide(.accessibility) })
         }
@@ -554,10 +746,10 @@ struct EventRow: View {
             IconBadge(symbol: e.icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(e.title).font(.body.weight(.medium)).lineLimit(2)
-                if !e.detail.isEmpty { Text(e.detail).font(.callout).foregroundStyle(.secondary).lineLimit(3) }
+                if !e.detail.isEmpty { Text(e.detail).font(.callout).foregroundStyle(Brand.dim).lineLimit(3) }
             }
             Spacer(minLength: 8)
-            Text(e.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+            Text(e.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(Brand.dim)
         }
         .accessibilityElement(children: .combine)
     }
@@ -565,6 +757,7 @@ struct EventRow: View {
 
 struct ActivityPage: View {
     @EnvironmentObject var m: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduce
     var body: some View {
         if m.events.isEmpty {
             Card { EmptyState(symbol: "bell.slash", title: "Nothing yet", message: "Phone notifications, codes and screen sessions show up here.") }
@@ -572,10 +765,14 @@ struct ActivityPage: View {
             Card {
                 VStack(spacing: 14) {
                     ForEach(m.events) { e in
-                        EventRow(e: e)
-                        if e.id != m.events.last?.id { Divider() }
+                        VStack(spacing: 14) {
+                            EventRow(e: e)
+                            if e.id != m.events.last?.id { Divider().overlay(Brand.border) }
+                        }
+                        .listTransition(reduce)
                     }
                 }
+                .animation(Motion.normal(reduce), value: m.events.map(\.id))
             }
         }
     }
@@ -598,7 +795,7 @@ struct NetworkPage: View {
         }
     }
     private var tint: Color {
-        switch m.tunnelState { case "running": return Brand.accent; case "error": return Brand.danger; case "off": return .secondary; default: return Brand.warn }
+        switch m.tunnelState { case "running": return Brand.accent; case "error": return Brand.danger; case "off": return Brand.dim; default: return Brand.warn }
     }
 
     var body: some View {
@@ -606,25 +803,25 @@ struct NetworkPage: View {
             Label(stateText, systemImage: symbol).font(.title3.weight(.semibold)).foregroundStyle(tint).symbolRenderingMode(.hierarchical)
             if m.tunnelState == "running" {
                 Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-                    GridRow { Text("Account").foregroundStyle(.secondary); Text(m.tunnelAccount.isEmpty ? "Signed in" : m.tunnelAccount).textSelection(.enabled) }
-                    GridRow { Text("This Mac").foregroundStyle(.secondary); Text(m.tunnelHost.isEmpty ? "andromac-mac" : m.tunnelHost).textSelection(.enabled) }
-                    GridRow { Text("Address").foregroundStyle(.secondary); Text(m.tunnelIP ?? "-").font(.body.monospaced()).textSelection(.enabled) }
+                    GridRow { Text("Account").foregroundStyle(Brand.dim); Text(m.tunnelAccount.isEmpty ? "Signed in" : m.tunnelAccount).textSelection(.enabled) }
+                    GridRow { Text("This Mac").foregroundStyle(Brand.dim); Text(m.tunnelHost.isEmpty ? "andromac-mac" : m.tunnelHost).textSelection(.enabled) }
+                    GridRow { Text("Address").foregroundStyle(Brand.dim); Text(m.tunnelIP ?? "-").font(.body.monospaced()).textSelection(.enabled) }
                 }
                 Button { m.tunnelSignOut() } label: { Label("Sign out or switch account", systemImage: "rectangle.portrait.and.arrow.right") }.buttonStyle(.brandSecondary)
             } else if m.tunnelState == "login" {
-                Text("Sign in with the same account you use on your phone.").font(.callout).foregroundStyle(.secondary)
+                Text("Sign in with the same account you use on your phone.").font(.callout).foregroundStyle(Brand.dim)
                 Button("Sign in") { m.openTunnelLogin() }.buttonStyle(.brand)
             } else if m.tunnelState == "error" {
                 Text(m.tunnelDetail).font(.callout).foregroundStyle(Brand.danger).fixedSize(horizontal: false, vertical: true)
             } else if m.tunnelState == "off" {
-                Text("The connection is switched off. Turn it on from Home to bring the private network back.").font(.callout).foregroundStyle(.secondary)
+                Text("The connection is switched off. Turn it on from Home to bring the private network back.").font(.callout).foregroundStyle(Brand.dim)
             }
         }
         Card(title: "How it works") {
             Label("Andromac includes its own private network. Your phone and Mac reach each other from any network, with no cable, no shared Wi-Fi and no separate Tailscale app.", systemImage: "network")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             Label("Everything is also encrypted by Andromac itself. Your existing Tailscale app, if you have one, is not affected.", systemImage: "lock.fill")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -641,11 +838,11 @@ struct SettingsPage: View {
         }
         Card(title: "Sync") {
             ToggleRow(symbol: "doc.on.clipboard.fill", title: "Sync clipboard", detail: "Copy on one device, paste on the other, in real time.", isOn: $m.syncClipboard)
-            Divider()
+            Divider().overlay(Brand.border)
             ToggleRow(symbol: "bell.badge.fill", title: "Show Mac notifications on my phone", detail: "Needs Full Disk Access.", isOn: $m.mirrorMacNotifications)
-            Divider()
+            Divider().overlay(Brand.border)
             ToggleRow(symbol: "key.fill", title: "Copy one-time codes automatically", detail: "Codes from texts and notifications are copied for you.", isOn: $m.autoCopyOTP)
-            Divider()
+            Divider().overlay(Brand.border)
             ToggleRow(symbol: "sunrise.fill", title: "Open Andromac at login", detail: "Starts quietly in the menu bar.", isOn: $m.launchAtLogin)
         }
         Card(title: "Notifications") {
@@ -653,23 +850,24 @@ struct SettingsPage: View {
                       detail: "On (default): real macOS notifications that stay in Notification Center, with the app's icon as a thumbnail, Reply, and click to open on your phone. macOS always shows Andromac's own icon on the left of these. Off: Andromac draws its own banners with the real app icon on the left, which are not kept in Notification Center.",
                       isOn: $m.nativeBanners)
         }
+        Card(title: "Duplicates") {
+            ToggleRow(symbol: "bell.slash", title: "Skip apps already open on this Mac",
+                      detail: "If WhatsApp, Telegram or Slack is running on this Mac it already notifies you with its own logo, so Andromac won't show a second copy of the phone's notification.",
+                      isOn: $m.skipRunningApps)
+        }
         Card(title: "Availability") {
             ToggleRow(symbol: "moon.zzz.fill", title: "Keep this Mac reachable",
                       detail: "Stops the Mac from sleeping when idle so your phone, and ssh from Termux, can always reach it. The screen can still turn off.",
                       isOn: $m.keepAwake)
         }
-        Card(title: "Terminal") {
-            ToggleRow(symbol: "terminal.fill", title: "Let my phone's terminal reach this Mac",
-                      detail: "Termux on your phone can run  ssh -p 2222 \(NSUserName())@127.0.0.1  through Andromac, even when the Tailscale app is off. Needs Remote Login in System Settings › General › Sharing. Only your own devices can reach it.",
-                      isOn: $m.terminalAccess)
-        }
+        TerminalCard().id("terminal")
         Card(title: "Permissions") { PermissionList() }
         Card {
             HStack(spacing: 14) {
                 OrbitLogo(size: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Andromac 0.3").font(.body.weight(.semibold))
-                    Text("Mac and Android, one ecosystem.").font(.callout).foregroundStyle(.secondary)
+                    Text("Mac and Android, one ecosystem.").font(.callout).foregroundStyle(Brand.dim)
                 }
             }
             .accessibilityElement(children: .combine)

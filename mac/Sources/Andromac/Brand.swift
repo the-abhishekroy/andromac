@@ -16,15 +16,19 @@ enum Brand {
         NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
     }
     /// Window background
-    static let canvas = dynamic(light: rgb(0xF2F2F4), dark: rgb(0x000000))
+    static let canvas = Color(red: 0, green: 0, blue: 0)
     /// Card surface
-    static let surface = dynamic(light: rgb(0xFFFFFF), dark: rgb(0x0D0D0D))
-    static let surfaceRaised = dynamic(light: rgb(0xEDEDF0), dark: rgb(0x151515))
-    static let border = dynamic(light: NSColor.black.withAlphaComponent(0.09), dark: rgb(0x262626))
+    static let surface = Color(red: 0x0D/255, green: 0x0D/255, blue: 0x0D/255)
+    static let surfaceRaised = Color(red: 0x15/255, green: 0x15/255, blue: 0x15/255)
+    static let border = Color(red: 0x26/255, green: 0x26/255, blue: 0x26/255)
+    /// Dim text: 5.9:1 on #0D0D0D, 5.3:1 on #151515
+    static let dim = Color(red: 0x8C/255, green: 0x8C/255, blue: 0x8C/255)
+    /// Info blue, also the keyboard focus ring
+    static let info = Color(red: 0x87/255, green: 0xAF/255, blue: 0xFF/255)
     /// Green that keeps >= 4.5:1 on its background in both appearances (used for text and icons)
-    static let accent = dynamic(light: rgb(0x0A7A3D), dark: rgb(0x87D787))
-    static let warn = dynamic(light: rgb(0x9A4A00), dark: rgb(0xFFB454))
-    static let danger = dynamic(light: rgb(0xB3261E), dark: rgb(0xFF8A80))
+    static let accent = Color(red: 0x87/255, green: 0xD7/255, blue: 0x87/255)
+    static let warn = Color(red: 1, green: 0xB4/255, blue: 0x54/255)
+    static let danger = Color(red: 1, green: 0x8A/255, blue: 0x80/255)
     static let heroGradient = LinearGradient(colors: [navy, navy], startPoint: .top, endPoint: .bottom)   // flat: no gradient
 }
 
@@ -44,12 +48,9 @@ struct OrbitLogo: View {
                     .frame(width: size * 0.5, height: size * 0.5)
                     .scaleEffect(pulse ? 2.1 : 1).opacity(pulse ? 0 : 0.7)
             }
-            Circle().fill(RadialGradient(colors: [Brand.green.opacity(0.22), .clear], center: .center, startRadius: 0, endRadius: size * 0.42))
-                .frame(width: size, height: size)
             Circle().fill(Brand.green).frame(width: size * 0.2, height: size * 0.2)
-                .shadow(color: Brand.green.opacity(0.9), radius: size * 0.1)
             ZStack {
-                Ellipse().stroke(LinearGradient(colors: [Brand.silver, Brand.green], startPoint: .leading, endPoint: .trailing), lineWidth: max(2, size * 0.055))
+                Ellipse().stroke(Brand.silver, lineWidth: max(2, size * 0.055))
                     .frame(width: w, height: h)
                 Circle().fill(Brand.silver).frame(width: size * 0.13, height: size * 0.13)
                     .offset(x: -w / 2 * 0.80, y: -h / 2 * 0.60)
@@ -147,7 +148,7 @@ extension AppModel {
     var statusTintAdaptive: Color {
         switch uiState {
         case .connected: return Brand.accent
-        case .off: return .secondary
+        case .off: return Brand.dim
         case .problem: return Brand.danger
         default: return Brand.warn
         }
@@ -171,15 +172,14 @@ struct Card<Content: View>: View {
             if title != nil || subtitle != nil {
                 VStack(alignment: .leading, spacing: 4) {
                     if let title { Text(title).font(.headline).accessibilityAddTraits(.isHeader) }
-                    if let subtitle { Text(subtitle).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                    if let subtitle { Text(subtitle).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true) }
                 }
             }
             content
         }
         .padding(padding).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Brand.border))
-        .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+        .background(Brand.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Brand.border))
     }
 }
 
@@ -188,22 +188,25 @@ struct BrandButtonStyle: ButtonStyle {
     var kind: Kind = .primary
     var compact = false
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     func makeBody(configuration: Configuration) -> some View {
-        let fg: Color = kind == .primary ? Brand.navy : (kind == .destructive ? Brand.danger : .primary)
+        let fg: Color = kind == .primary ? Color.black : (kind == .destructive ? Brand.danger : .primary)
+        let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
         configuration.label
             .font(compact ? .callout.weight(.semibold) : .body.weight(.semibold))
             .foregroundStyle(fg)
             .padding(.horizontal, compact ? 12 : 16)
             .frame(minHeight: compact ? 32 : 38)
-            .background {
-                let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
-                if kind == .primary { r.fill(Brand.green) } else { r.fill(Brand.surfaceRaised) }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(kind == .primary ? Color.clear : Brand.border))
+            .background { if kind == .primary { r.fill(Brand.green) } else { r.fill(Brand.surfaceRaised) } }
+            .overlay(r.strokeBorder(kind == .primary ? Color.clear : Brand.border))
             .brightness(configuration.isPressed ? -0.08 : 0)
+            .scaleEffect(configuration.isPressed && !reduce ? 0.97 : 1)
+            .animation(Motion.fast(reduce), value: configuration.isPressed)
             .opacity(enabled ? 1 : 0.45)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .focusRing(focused, radius: 10)
+            .contentShape(r)
     }
 }
 extension ButtonStyle where Self == BrandButtonStyle {
@@ -249,7 +252,7 @@ struct PermissionRow: View {
             IconBadge(symbol: symbol, tint: ok ? Brand.accent : Brand.warn)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.body.weight(.medium))
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if ok { StatusPill(ok: true) }
@@ -269,17 +272,134 @@ struct ToggleRow: View {
     let symbol: String, title: String, detail: String
     @Binding var isOn: Bool
     var body: some View {
-        HStack(spacing: 12) {
-            IconBadge(symbol: symbol)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.medium))
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 12) {
+                IconBadge(symbol: symbol)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body.weight(.medium)).foregroundStyle(.primary)
+                    Text(detail).font(.callout).foregroundStyle(Brand.dim).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
             }
-            Spacer(minLength: 8)
-            Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch).tint(Brand.green)
-                .accessibilityLabel(title).accessibilityHint(detail)
         }
-        .frame(minHeight: 40)
+        .toggleStyle(SpringSwitchStyle(title: title, hint: detail))
+        .frame(minHeight: 44)
+    }
+}
+
+/// Flat switch with a spring thumb that grows when on and squeezes while pressed. The whole row is the hit target.
+struct SpringSwitchStyle: ToggleStyle {
+    var title: String
+    var hint: String? = nil
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: { configuration.label }
+            .buttonStyle(SwitchButtonStyle(isOn: configuration.isOn))
+            .accessibilityRepresentation {
+                Toggle(title, isOn: configuration.$isOn).accessibilityHint(hint ?? "")
+            }
+    }
+}
+
+private struct SwitchButtonStyle: ButtonStyle {
+    let isOn: Bool
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduce
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        let thumb: CGFloat = isOn ? 20 : 14
+        HStack(spacing: 12) {
+            configuration.label
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(isOn ? Brand.green : Brand.surfaceRaised)
+                Capsule().strokeBorder(isOn ? Brand.green : Brand.dim, lineWidth: 1.5)
+                Capsule().fill(isOn ? Color.black : Brand.dim).frame(width: thumb + (pressed ? 6 : 0), height: thumb).padding(.horizontal, 5)
+            }
+            .frame(width: 46, height: 28)
+            .animation(reduce ? Motion.fast(true) : .spring(response: 0.35, dampingFraction: 0.8), value: isOn)
+            .animation(reduce ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: pressed)
+            .focusRing(focused, radius: 14)
+            .accessibilityHidden(true)
+        }
+        .opacity(enabled ? 1 : 0.38)
+        .contentShape(Rectangle())
+    }
+}
+
+struct MasterSwitch: View {
+    @EnvironmentObject var m: AppModel
+    var body: some View {
+        Toggle(isOn: $m.connectionEnabled) { EmptyView() }
+            .toggleStyle(SpringSwitchStyle(title: "Connection", hint: "Turns the background connection to your phone on or off. It keeps running when the window is closed."))
+    }
+}
+
+// MARK: - Motion and shared polish
+
+enum Motion {
+    /// 150ms emphasized-decelerate: hover, press, colour
+    static func fast(_ reduce: Bool) -> Animation { .timingCurve(0.2, 0, 0, 1, duration: 0.15) }
+    /// 200ms: fades, list insert/remove, tab content
+    static func normal(_ reduce: Bool) -> Animation { .timingCurve(0.2, 0, 0, 1, duration: 0.2) }
+    /// 300ms: layout and sidebar moves (Reduce Motion falls back to a 200ms fade)
+    static func slow(_ reduce: Bool) -> Animation { .timingCurve(0.2, 0, 0, 1, duration: reduce ? 0.2 : 0.3) }
+}
+
+extension View {
+    /// 2px blue keyboard focus ring, drawn only while focused.
+    func focusRing(_ on: Bool, radius: CGFloat) -> some View {
+        self.focusEffectDisabled()
+            .overlay(RoundedRectangle(cornerRadius: radius + 2, style: .continuous).strokeBorder(Brand.info, lineWidth: 2).padding(-3).opacity(on ? 1 : 0))
+    }
+    /// List row insert/remove: slide plus fade (fade only with Reduce Motion).
+    func listTransition(_ reduce: Bool) -> some View {
+        transition(reduce ? .opacity : .asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
+    }
+}
+
+/// Status dot + text chip. Pulses only while connecting; static with Reduce Motion.
+struct StatusChip: View {
+    @EnvironmentObject var m: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @State private var dim = false
+    private var busy: Bool { m.uiState == .starting || m.uiState == .waiting }
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(m.statusTintAdaptive).frame(width: 8, height: 8).opacity(busy && dim ? 0.4 : 1)
+            Text(m.statusShort).font(.footnote.weight(.semibold)).foregroundStyle(m.statusTintAdaptive)
+        }
+        .padding(.horizontal, 10).frame(minHeight: 24)
+        .background(Brand.surfaceRaised, in: Capsule())
+        .overlay(Capsule().strokeBorder(Brand.border))
+        .animation(Motion.normal(reduce), value: m.uiState)
+        .onAppear { if !reduce { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true } } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Status: \(m.statusShort)")
+    }
+}
+
+/// Flat placeholder bar used instead of spinners while content loads.
+struct SkeletonBar: View {
+    var width: CGFloat? = nil
+    var height: CGFloat = 12
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @State private var on = false
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Brand.surfaceRaised)
+            .frame(width: width, height: height).frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+            .opacity(on ? 0.55 : 1)
+            .onAppear { if !reduce { withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { on = true } } }
+            .accessibilityHidden(true)
+    }
+}
+
+struct SectionHeader: View {
+    let text: String
+    init(_ t: String) { text = t }
+    var body: some View {
+        Text(text).font(.footnote.weight(.semibold)).textCase(.uppercase).foregroundStyle(Brand.dim)
+            .padding(.top, 8).accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -293,18 +413,6 @@ struct SourceBadge: View {
             .background((item.fromPhone ? Brand.accent : Color.primary).opacity(0.10), in: Capsule())
     }
 }
-
-struct MasterSwitch: View {
-    @EnvironmentObject var m: AppModel
-    var body: some View {
-        Toggle("Connection", isOn: $m.connectionEnabled)
-            .labelsHidden().toggleStyle(.switch).tint(Brand.green).controlSize(.large)
-            .accessibilityLabel("Connection")
-            .accessibilityValue(m.connectionEnabled ? "On" : "Off")
-            .accessibilityHint("Turns the background connection to your phone on or off. It keeps running when the window is closed.")
-    }
-}
-
 
 /// A clipboard item's preview: a small thumbnail for images, up to two lines for text and links.
 struct ClipThumb: View {
