@@ -18,7 +18,7 @@ struct ClipItem: Identifiable {
     let id = UUID()
     let text: String
     let fromPhone: Bool
-    let date = Date()
+    var date = Date()
 }
 
 final class AppModel: ObservableObject {
@@ -93,7 +93,7 @@ final class AppModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: ["mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
+        d.register(defaults: ["nativeBanners": true, "mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
         let first = d.bool(forKey: "firstRun")
         syncClipboard = d.bool(forKey: "syncClip")
         terminalAccess = d.bool(forKey: "termOn")
@@ -111,12 +111,14 @@ final class AppModel: ObservableObject {
             if !w.decoder.decode(au) { self.server.send(type: "keyframe", data: [:]) }
         }
         server.onMessage = { [weak self] t, data in DispatchQueue.main.async { self?.handle(t, data) } }
-        server.onConnect = { [weak self] in DispatchQueue.main.async { self?.connected = true; self?.hasConnectedBefore = true } }
+        server.onConnect = { [weak self] in DispatchQueue.main.async { self?.connected = true; self?.hasConnectedBefore = true; if self?.syncClipboard == true { self?.sendClipSync() } } }
         server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil } }
         do { try server.start() } catch { log("server failed: \(error)") }
         tunnel.onState = { [weak self] state, detail in self?.tunnelEvent(state, detail) }
         tunnel.forwardSSH = terminalAccess
         applyKeepAwake()
+        loadClips()
+        if let cur = NSPasteboard.general.string(forType: .string), !cur.isEmpty, !clipboardHistory.contains(where: { $0.text == cur }) { addClip(cur, fromPhone: false) }   // what is on the clipboard right now counts too
         AppDelegate.keepRunning = { [weak self] in self?.connectionEnabled ?? false }
         BannerCenter.shared.onReply = { [weak self] key, text in
             self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
@@ -159,7 +161,7 @@ final class AppModel: ObservableObject {
             if let b64 = data["icon"] as? String, let png = Data(base64Encoded: b64) { iconPNG[pkg] = png }
             if nativeBanners {
                 Notifier.shared.post(title: title.isEmpty ? app : title, body: text, subtitle: "\(app) · Phone",
-                                     key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false)
+                                     key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false, appName: app)
             } else {
                 BannerCenter.shared.show(BannerItem(title: title.isEmpty ? app : title, subtitle: "\(app) · Phone", body: text,
                                                     icon: iconPNG[pkg].flatMap { NSImage(data: $0) }, key: data["key"] as? String,
@@ -173,6 +175,8 @@ final class AppModel: ObservableObject {
             Notifier.post(title: "SMS · \(from)", body: body)
             record("message.fill", "SMS · \(from)", body)
             if let otp = data["otp"] as? String { gotOTP(otp, from: from) }
+        case "clip_sync":
+            if syncClipboard, let items = data["items"] as? [[String: Any]] { mergeClips(items) }
         case "clipboard":
             if syncClipboard, let text = data["text"] as? String, !text.isEmpty {
                 setClipboard(text)
@@ -251,10 +255,58 @@ final class AppModel: ObservableObject {
         server.send(type: "clipboard", data: ["text": t, "ts": Int(Date().timeIntervalSince1970 * 1000)])
     }
 
-    private func addClip(_ text: String, fromPhone: Bool) {
+    private func addClip(_ text: String, fromPhone: Bool, date: Date = Date()) {
         clipboardHistory.removeAll { $0.text == text }
-        clipboardHistory.insert(ClipItem(text: text, fromPhone: fromPhone), at: 0)
-        if clipboardHistory.count > 60 { clipboardHistory.removeLast(clipboardHistory.count - 60) }
+        clipboardHistory.insert(ClipItem(text: text, fromPhone: fromPhone, date: date), at: 0)
+        if clipboardHistory.count > 100 { clipboardHistory.removeLast(clipboardHistory.count - 100) }
+        if !fromPhone { lastLocalClip = date }
+        saveClips()
+    }
+
+    // MARK: clipboard history: saved on this Mac and exchanged with the phone every time they connect
+    private var lastLocalClip = Date.distantPast
+    private var saveWork: DispatchWorkItem?
+    private var clipFile: URL {
+        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Andromac", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return d.appendingPathComponent("clipboard.json")
+    }
+    private func saveClips() {
+        saveWork?.cancel()
+        let items = clipboardHistory.map { ["t": $0.text, "p": $0.fromPhone, "d": $0.date.timeIntervalSince1970] as [String: Any] }
+        let w = DispatchWorkItem { [clipFile] in
+            if let data = try? JSONSerialization.data(withJSONObject: items) {
+                try? data.write(to: clipFile, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: clipFile.path)
+            }
+        }
+        saveWork = w; DispatchQueue.global().asyncAfter(deadline: .now() + 0.5, execute: w)
+    }
+    private func loadClips() {
+        guard let data = try? Data(contentsOf: clipFile), let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+        clipboardHistory = arr.compactMap { o in
+            guard let t = o["t"] as? String, let d = o["d"] as? Double else { return nil }
+            return ClipItem(text: t, fromPhone: (o["p"] as? Bool) ?? false, date: Date(timeIntervalSince1970: d))
+        }.sorted { $0.date > $1.date }
+        lastLocalClip = clipboardHistory.first(where: { !$0.fromPhone })?.date ?? .distantPast
+    }
+    /// Everything we have, for the phone (newest first; huge items skipped).
+    private func sendClipSync() {
+        let items = clipboardHistory.prefix(100).filter { $0.text.utf8.count < 20_000 }
+            .map { ["t": $0.text, "s": $0.fromPhone ? "phone" : "mac", "ts": Int($0.date.timeIntervalSince1970 * 1000)] as [String: Any] }
+        server.send(type: "clip_sync", data: ["items": items])
+    }
+    /// Merge the phone's history into ours. If the phone's newest item is newer than anything copied here, make it current.
+    private func mergeClips(_ items: [[String: Any]]) {
+        for o in items {
+            guard let t = o["t"] as? String, !t.isEmpty, let ms = o["ts"] as? Double ?? (o["ts"] as? Int).map(Double.init) else { continue }
+            if clipboardHistory.contains(where: { $0.text == t }) { continue }
+            clipboardHistory.append(ClipItem(text: t, fromPhone: (o["s"] as? String) != "mac", date: Date(timeIntervalSince1970: ms / 1000)))
+        }
+        clipboardHistory.sort { $0.date > $1.date }
+        if clipboardHistory.count > 100 { clipboardHistory.removeLast(clipboardHistory.count - 100) }
+        saveClips()
+        if syncClipboard, let newest = clipboardHistory.first, newest.fromPhone, newest.date > lastLocalClip { setClipboard(newest.text) }
     }
 
     /// Put a history item back on this Mac's clipboard and on the phone's.
@@ -264,7 +316,7 @@ final class AppModel: ObservableObject {
         if connected && syncClipboard { sendClip(item.text) }
     }
 
-    func clearClipboardHistory() { clipboardHistory.removeAll() }
+    func clearClipboardHistory() { clipboardHistory.removeAll(); saveClips() }
 
     private func applyConnection() {
         if connectionEnabled {

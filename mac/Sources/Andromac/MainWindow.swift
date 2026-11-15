@@ -645,8 +645,8 @@ struct SettingsPage: View {
             ToggleRow(symbol: "sunrise.fill", title: "Open Andromac at login", detail: "Starts quietly in the menu bar.", isOn: $m.launchAtLogin)
         }
         Card(title: "Notifications") {
-            ToggleRow(symbol: "bell.badge", title: "Use macOS notification banners",
-                      detail: "Off (recommended): Andromac shows its own banners with the real app's icon on the left, a phone badge, Reply and click to open. On: standard macOS banners, which always show Andromac's own icon.",
+            ToggleRow(symbol: "bell.badge", title: "Use macOS notifications (Notification Center)",
+                      detail: "On (default): real macOS notifications that stay in Notification Center, with the app's icon as a thumbnail, Reply, and click to open on your phone. macOS always shows Andromac's own icon on the left of these. Off: Andromac draws its own banners with the real app icon on the left, which are not kept in Notification Center.",
                       isOn: $m.nativeBanners)
         }
         Card(title: "Availability") {

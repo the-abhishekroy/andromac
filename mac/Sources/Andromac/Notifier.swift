@@ -49,7 +49,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         return url
     }
 
-    func post(title: String, body: String, subtitle: String? = nil, key: String? = nil, iconKey: String? = nil, iconPNG: Data? = nil, canReply: Bool = false) {
+    func post(title: String, body: String, subtitle: String? = nil, key: String? = nil, iconKey: String? = nil, iconPNG: Data? = nil, canReply: Bool = false, appName: String? = nil) {
         guard Self.isBundle else { return Self.osascript(title, body) }
         let c = UNMutableNotificationContent()
         c.title = title; c.body = body; c.sound = .default

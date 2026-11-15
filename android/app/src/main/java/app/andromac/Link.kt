@@ -46,7 +46,7 @@ object Link {
     @Volatile var macScreen: ((String, JSONObject) -> Unit)? = null
 
     fun init(ctx: Context) {
-        app = ctx.applicationContext; Settings.load(app)
+        app = ctx.applicationContext; Settings.load(app); ClipHistory.load(app)
         if (state.phase == Phase.NOT_PAIRED && pairingLink() != null) state = State(Phase.CONNECTING)
     }
     fun unpair() { prefs().edit().remove("link").apply(); socket?.cancel(); socket = null; running = false; pushState(State(Phase.NOT_PAIRED)) }
@@ -96,6 +96,7 @@ object Link {
                 backoff = 1000
                 epoch++
                 pushState(State(Phase.CONNECTED, state.macName))
+                if (Settings.syncClipboard) send("clip_sync", JSONObject().put("items", ClipHistory.export()))
                 send("hello", JSONObject().put("device", android.os.Build.MODEL).put("version", 1).put("tip", Net.ip ?: ""))
                 sendBattery()
             }
@@ -156,6 +157,7 @@ object Link {
                 } else { controlWarned = false; ControlService.handle(data) }
             }
             "mac_screen_started", "mac_screen_denied", "mac_screen_stopped", "cursor" -> macScreen?.invoke(env.optString("type"), data)
+            "clip_sync" -> main.post { if (Settings.syncClipboard) ClipHistory.merge(app, data.optJSONArray("items")) }
             "notification_reply" -> NotifService.reply(app, data.optString("key"), data.optString("text"))
             "notification_open" -> NotifService.open(app, data.optString("key"), data.optString("title"))
             "ping" -> send("pong", JSONObject())

@@ -577,7 +577,7 @@ private fun ClipboardTab(notify: (String) -> Unit) {
             Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.Top) {
                 Icon(Icons.Rounded.Info, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(8.dp))
-                Body("Items from your Mac also appear in this phone's own clipboard history (Gboard or Samsung keyboard). This list is kept in memory only and is cleared when Andromac restarts.")
+                Body("Everything you copy on either device is saved here and swapped with your Mac each time you connect, even items copied while you were offline. Items from your Mac also appear in this phone's own clipboard history (Gboard or Samsung keyboard). Saved only on this phone; Clear removes it.")
             }
         }
         if (items.isEmpty()) {
