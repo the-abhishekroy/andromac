@@ -78,7 +78,7 @@ Turn on sharing on the phone and your **internal storage and SD card appear in F
 <td width="50%" valign="top">
 
 ### 💻 Terminal shortcuts
-`ssh m5` from Termux reaches your Mac. `ssh f14` from the Mac reaches your phone. Through Andromac, with no VPN app on the phone.
+`ssh m5` from the phone's terminal reaches your Mac. `ssh f14` from the Mac reaches your phone. Through Andromac, with no VPN app on the phone. Built for **[Terminal](https://github.com/the-abhishekroy/Terminal)**, my Linux terminal for Android (any Termux-based terminal works too).
 
 </td>
 </tr>
@@ -142,7 +142,7 @@ Controlling the phone needs Android's accessibility service. Payment apps such a
 
 <br/>
 
-Turn on *Remote Login* on the Mac (System Settings → General → Sharing), keep *Terminal access* on in Andromac, then add this to `~/.ssh/config` in Termux:
+Turn on *Remote Login* on the Mac (System Settings → General → Sharing), keep *Terminal access* on in Andromac, then add this to `~/.ssh/config` in [Terminal](https://github.com/the-abhishekroy/Terminal) (or Termux):
 
 ```
 Host m5
@@ -152,7 +152,7 @@ Host m5
   ServerAliveInterval 15
 ```
 
-and run `ssh m5`. For the other direction, run `sshd` in Termux and connect to `127.0.0.1` port `2223` from the Mac.
+and run `ssh m5`. For the other direction, put your Mac's public key in the phone terminal's `~/.ssh/authorized_keys` ([Terminal](https://github.com/the-abhishekroy/Terminal) then starts its ssh server by itself on port 8022; in plain Termux run `sshd`) and connect to `127.0.0.1` port `2223` from the Mac.
 
 </details>
 
