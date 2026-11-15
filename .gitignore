@@ -20,3 +20,4 @@ mac/dmg/background@2x.png
 *.keystore
 *.pem
 *.p12
+dist-release/

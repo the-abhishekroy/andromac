@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" role="img" aria-label="Architecture: Mac and Android connected by two encrypted layers over a built-in private network">
+  <rect width="1200" height="620" fill="#000000"/>
+  <g font-family="-apple-system, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+    <!-- device panels -->
+    <rect x="30" y="30" width="450" height="500" rx="24" fill="#0D0D0D" stroke="#262626" stroke-width="2"/>
+    <rect x="720" y="30" width="450" height="500" rx="24" fill="#0D0D0D" stroke="#262626" stroke-width="2"/>
+    <text x="60" y="76" font-size="26" font-weight="700" fill="#FFFFFF">Mac</text>
+    <text x="115" y="76" font-size="16" fill="#8C8C8C">SwiftUI · macOS 14+</text>
+    <text x="750" y="76" font-size="26" font-weight="700" fill="#FFFFFF">Android</text>
+    <text x="855" y="76" font-size="16" fill="#8C8C8C">Kotlin · Jetpack Compose · 9+</text>
+
+    <!-- Mac: app -->
+    <rect x="60" y="96" width="390" height="86" rx="14" fill="#151515" stroke="#262626"/>
+    <text x="80" y="128" font-size="19" font-weight="600" fill="#FFFFFF">Andromac.app</text>
+    <text x="80" y="156" font-size="15" fill="#8C8C8C">Window · menu bar · ⌘K palette · widgets</text>
+    <!-- Mac: services -->
+    <rect x="60" y="196" width="390" height="152" rx="14" fill="#151515" stroke="#262626"/>
+    <g font-size="15" fill="#FFFFFF">
+      <circle cx="82" cy="226" r="4" fill="#87D787"/><text x="98" y="231">Clipboard watcher and history</text>
+      <circle cx="82" cy="254" r="4" fill="#87D787"/><text x="98" y="259">Notification Center reader and banners</text>
+      <circle cx="82" cy="282" r="4" fill="#87D787"/><text x="98" y="287">ScreenCaptureKit + VideoToolbox (H.264)</text>
+      <circle cx="82" cy="310" r="4" fill="#87D787"/><text x="98" y="315">Input injection (mouse, keyboard, gestures)</text>
+    </g>
+    <!-- Mac: tunnel -->
+    <rect x="60" y="362" width="390" height="148" rx="14" fill="#0D0D0D" stroke="#87D787" stroke-width="2"/>
+    <text x="80" y="394" font-size="19" font-weight="600" fill="#87D787">andromac-tunnel</text>
+    <text x="80" y="420" font-size="15" fill="#FFFFFF">Embedded Tailscale node (Go, tsnet)</text>
+    <text x="80" y="448" font-size="14" fill="#8C8C8C">tailnet :8765  →  127.0.0.1:8765  (app)</text>
+    <text x="80" y="472" font-size="14" fill="#8C8C8C">tailnet :22  →  ssh  (terminal shortcut)</text>
+
+    <!-- Phone: app -->
+    <rect x="750" y="96" width="390" height="86" rx="14" fill="#151515" stroke="#262626"/>
+    <text x="770" y="128" font-size="19" font-weight="600" fill="#FFFFFF">Andromac app and services</text>
+    <text x="770" y="156" font-size="15" fill="#8C8C8C">Home · Clipboard · Screen · widget · tiles</text>
+    <!-- Phone: services -->
+    <rect x="750" y="196" width="390" height="152" rx="14" fill="#151515" stroke="#262626"/>
+    <g font-size="15" fill="#FFFFFF">
+      <circle cx="772" cy="226" r="4" fill="#87D787"/><text x="788" y="231">Notification and SMS listener</text>
+      <circle cx="772" cy="254" r="4" fill="#87D787"/><text x="788" y="259">Clipboard sync: text, links, images</text>
+      <circle cx="772" cy="282" r="4" fill="#87D787"/><text x="788" y="287">MediaProjection + MediaCodec (H.264)</text>
+      <circle cx="772" cy="310" r="4" fill="#87D787"/><text x="788" y="315">Control service, on only during a session</text>
+    </g>
+    <!-- Phone: tunnel -->
+    <rect x="750" y="362" width="390" height="148" rx="14" fill="#0D0D0D" stroke="#87D787" stroke-width="2"/>
+    <text x="770" y="394" font-size="19" font-weight="600" fill="#87D787">tunnel.aar</text>
+    <text x="770" y="420" font-size="15" fill="#FFFFFF">Embedded Tailscale node (gomobile)</text>
+    <text x="770" y="448" font-size="14" fill="#8C8C8C">local proxy  →  Mac app</text>
+    <text x="770" y="472" font-size="14" fill="#8C8C8C">127.0.0.1:2222  →  Mac ssh (Termux)</text>
+
+    <!-- link 1: Andromac frames -->
+    <line x1="456" y1="139" x2="744" y2="139" stroke="#FFFFFF" stroke-width="2.5" stroke-dasharray="9 7"/>
+    <polygon points="744,139 732,132 732,146" fill="#FFFFFF"/><polygon points="456,139 468,132 468,146" fill="#FFFFFF"/>
+    <text x="600" y="108" font-size="15" font-weight="600" fill="#FFFFFF" text-anchor="middle">Layer 2: Andromac frames</text>
+    <text x="600" y="128" font-size="13" fill="#8C8C8C" text-anchor="middle">ChaCha20-Poly1305</text>
+    <text x="600" y="168" font-size="13" fill="#8C8C8C" text-anchor="middle">key from the QR you scan</text>
+    <!-- what flows -->
+    <g font-size="14" fill="#8C8C8C" text-anchor="middle">
+      <text x="600" y="230">notifications · codes</text>
+      <text x="600" y="256">clipboard · images</text>
+      <text x="600" y="282">screen video · input</text>
+      <text x="600" y="308">files soon</text>
+    </g>
+    <!-- link 2: tunnel -->
+    <line x1="456" y1="436" x2="744" y2="436" stroke="#87D787" stroke-width="5"/>
+    <polygon points="744,436 730,427 730,445" fill="#87D787"/><polygon points="456,436 470,427 470,445" fill="#87D787"/>
+    <text x="600" y="402" font-size="15" font-weight="600" fill="#87D787" text-anchor="middle">Layer 1: WireGuard</text>
+    <text x="600" y="422" font-size="13" fill="#8C8C8C" text-anchor="middle">private network</text>
+    <text x="600" y="466" font-size="13" fill="#8C8C8C" text-anchor="middle">direct, or relayed when</text>
+    <text x="600" y="484" font-size="13" fill="#8C8C8C" text-anchor="middle">a firewall gets in the way</text>
+
+    <text x="600" y="580" font-size="16" fill="#FFFFFF" text-anchor="middle">No server of ours. Tailscale sees device names and addresses, never your content.</text>
+    <text x="600" y="604" font-size="13" fill="#8C8C8C" text-anchor="middle">The Mac app listens on 127.0.0.1 only, so nothing is exposed on your Wi-Fi.</text>
+  </g>
+</svg>

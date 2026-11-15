@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-label="Andromac: your Mac and your Android phone, one ecosystem">
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0"><stop offset="0.1" stop-color="#F1F4FA"/><stop offset="0.9" stop-color="#87D787"/></linearGradient>
+  </defs>
+  <rect width="1280" height="400" fill="#000000"/>
+  <rect x="1" y="1" width="1278" height="398" rx="28" fill="none" stroke="#262626" stroke-width="2"/>
+  <!-- orbit logo -->
+  <g transform="translate(250 200) rotate(-28)">
+    <ellipse rx="150" ry="58" fill="none" stroke="url(#ring)" stroke-width="12"/>
+    <circle cx="-141" cy="-20" r="22" fill="#E4E8F0"/>
+    <circle cx="141" cy="20" r="22" fill="#87D787"/>
+  </g>
+  <circle cx="250" cy="200" r="5" fill="#E8FFF2"/>
+  <g font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="470" y="190" font-size="104" font-weight="700" fill="#FFFFFF" letter-spacing="-2">Andromac</text>
+    <text x="474" y="244" font-size="31" fill="#8C8C8C">Your Mac and your Android phone. One ecosystem.</text>
+    <text x="474" y="284" font-size="31" fill="#87D787">From anywhere. No cable, no shared Wi-Fi.</text>
+    <g font-size="21" font-weight="600" fill="#87D787">
+      <rect x="474" y="318" width="150" height="40" rx="20" fill="#0D0D0D" stroke="#262626"/><text x="549" y="344" text-anchor="middle">Notifications</text>
+      <rect x="636" y="318" width="116" height="40" rx="20" fill="#0D0D0D" stroke="#262626"/><text x="694" y="344" text-anchor="middle">Clipboard</text>
+      <rect x="764" y="318" width="190" height="40" rx="20" fill="#0D0D0D" stroke="#262626"/><text x="859" y="344" text-anchor="middle">Screen control</text>
+      <rect x="966" y="318" width="110" height="40" rx="20" fill="#0D0D0D" stroke="#262626"/><text x="1021" y="344" text-anchor="middle">Terminal</text>
+    </g>
+  </g>
+</svg>
