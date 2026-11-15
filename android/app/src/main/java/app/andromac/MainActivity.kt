@@ -17,11 +17,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -86,6 +88,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
 // ---------- root / navigation ----------
 private enum class Tab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Rounded.Home),
@@ -98,10 +101,11 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 private fun Root(tick: Int) {
     var screen by remember { mutableStateOf("main") }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    val reduced = rememberReducedMotion()
+    val reduced = LocalReduced.current
     val snack = remember { SnackbarHostState() }
     var toast by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(toast) { toast?.let { snack.showSnackbar(it); toast = null } }
+    LaunchedEffect(toast) { toast?.let { snack.showSnackbar(it, duration = SnackbarDuration.Short); toast = null } }
+    LaunchedEffect(Unit) { delay(900); introPlayed = true }
     BackHandler(screen != "main") { screen = "main" }
     BackHandler(screen == "main" && tab != 0) { tab = 0 }
     if (screen == "apps") { AppsScreen { screen = "main" }; return }
@@ -111,18 +115,25 @@ private fun Root(tick: Int) {
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
             val d = androidx.compose.ui.platform.LocalDensity.current
+            // labels stay readable at huge font sizes instead of wrapping inside the bar
             CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, minOf(d.fontScale, 1.2f))) {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                Tab.entries.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = tab == i, onClick = { tab = i },
-                        icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(t.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        alwaysShowLabel = true,
-                        modifier = Modifier.semantics { contentDescription = "${t.label} tab" },
-                    )
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    Tab.entries.forEachIndexed { i, t ->
+                        NavigationBarItem(
+                            selected = tab == i, onClick = { tab = i },
+                            icon = { Icon(t.icon, contentDescription = null) },
+                            label = { Text(t.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            alwaysShowLabel = true,
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                            modifier = Modifier.semantics { contentDescription = "${t.label} tab" },
+                        )
+                    }
                 }
-            }
             }
         },
     ) { pad ->
@@ -130,8 +141,8 @@ private fun Root(tick: Int) {
             AnimatedContent(
                 targetState = tab, label = "tabs",
                 transitionSpec = {
-                    val d = if (reduced) 0 else 220
-                    fadeIn(tween(d)) togetherWith fadeOut(tween(d))
+                    val d = if (reduced) 0 else Mo.Normal
+                    fadeIn(tween(d, easing = Mo.Emph)) togetherWith fadeOut(tween(if (reduced) 0 else Mo.Fast, easing = Mo.Emph))
                 },
             ) { t ->
                 when (Tab.entries[t]) {
@@ -201,122 +212,25 @@ private fun permSpecs(perms: Perms, includeA11y: Boolean, a11yOn: Boolean): List
     }
 }
 
-// ---------- building blocks ----------
-@Composable
-private fun Page(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 16.dp, start = 4.dp).semantics { heading() })
-        content()
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun Heading(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp).semantics { heading() })
-}
-
-@Composable
-private fun AppCard(modifier: Modifier = Modifier, container: Color = MaterialTheme.colorScheme.surfaceContainer, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = container,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), tonalElevation = 1.dp,
-    ) { Column(Modifier.fillMaxWidth(), content = content) }
-}
-
-@Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column {
-        Heading(title)
-        AppCard(content = { Column(Modifier.padding(vertical = 4.dp), content = content) })
-    }
-}
-
-@Composable
-private fun Body(text: String, modifier: Modifier = Modifier) =
-    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
-
-@Composable
-private fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, icon: ImageVector? = null, onClick: () -> Unit) {
-    Button(onClick, modifier.fillMaxWidth().heightIn(min = 52.dp), enabled = enabled, shape = RoundedCornerShape(16.dp)) {
-        if (icon != null) { Icon(icon, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)) }
-        Text(text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-    }
-}
-
-@Composable
-private fun TonalButton(text: String, modifier: Modifier = Modifier, icon: ImageVector? = null, onClick: () -> Unit) {
-    FilledTonalButton(onClick, modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) {
-        if (icon != null) { Icon(icon, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)) }
-        Text(text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-    }
-}
-
-@Composable
-private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit, icon: ImageVector? = null) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .semantics { stateDescription = if (checked) "On" else "Off" }
-            .toggleable(checked, role = Role.Switch, onValueChange = onChange)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp)) }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle != null) Body(subtitle)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked, null, thumbContent = if (checked) {
-            { Icon(Icons.Rounded.Check, null, Modifier.size(SwitchDefaults.IconSize)) }
-        } else null)
-    }
-}
-
-@Composable
-private fun NavRow(label: String, value: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            Body(value)
-        }
-        Icon(Icons.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun StatusPill(icon: ImageVector, text: String, color: Color, onDark: Boolean = false) {
-    Row(
-        Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = if (onDark) 0.16f else 0.14f))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(16.dp), tint = color)
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = MaterialTheme.typography.labelLarge, color = color)
-    }
-}
-
-@Composable
-private fun MacGlyph(tint: Color, modifier: Modifier = Modifier.size(24.dp)) {
-    Canvas(modifier) {
-        val w = size.width; val h = size.height; val sw = w * 0.09f
-        drawRoundRect(tint, Offset(w * 0.14f, h * 0.18f), Size(w * 0.72f, h * 0.5f), CornerRadius(w * 0.07f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
-        drawRoundRect(tint, Offset(w * 0.04f, h * 0.76f), Size(w * 0.92f, h * 0.09f), CornerRadius(w * 0.05f))
-    }
-}
-
 // ---------- Home ----------
-private val HeroBrush = Brush.verticalGradient(listOf(Color(0xFF0D0D0D), Color(0xFF0D0D0D)))   // flat: no gradient
-private val HeroText = Color(0xFFF5F5F5)
-private val HeroSub = Color(0xFFA1A1A1)
+private fun pairFromClipboard(ctx: Context, notify: (String) -> Unit) {
+    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val t = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()
+    if (t != null && t.startsWith("andromac://")) { Link.savePairing(t); LinkService.start(ctx); Link.restart(); notify("Pairing…") }
+    else notify("Copy the pairing link on your Mac first")
+}
+
+private fun scanQr(ctx: Context, notify: (String) -> Unit) {
+    val opts = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+        .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE).build()
+    com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(ctx, opts).startScan()
+        .addOnSuccessListener { b ->
+            val t = b.rawValue?.trim()
+            if (t != null && t.startsWith("andromac://")) { Link.savePairing(t); LinkService.start(ctx); Link.restart(); notify("Pairing…") }
+            else notify("That QR code isn't from Andromac")
+        }
+        .addOnFailureListener { notify("Scanner unavailable. Use Paste pairing link instead.") }
+}
 
 @Composable
 private fun HomeTab(tick: Int, goTab: (Int) -> Unit, notify: (String) -> Unit) {
@@ -324,154 +238,170 @@ private fun HomeTab(tick: Int, goTab: (Int) -> Unit, notify: (String) -> Unit) {
     val perms = remember(tick, Link.state) { readPerms(ctx) }
     val st = Link.state
     val paired = Link.isPaired
-    val sc = LocalStatusColors.current
+    val mode = Quick.mode(ctx)
+    val c = MaterialTheme.colorScheme
+    val mac = st.macName?.takeIf { it.isNotBlank() }
     Page("Andromac") {
-        // ----- hero -----
-        val paused = paired && !Settings.keepConnected && st.phase != Link.Phase.CONNECTED
-        val heroGreen = Brand.Green; val heroAmber = Color(0xFFFFC857); val heroRed = Color(0xFFFF9B93)
-        val (icon, pill, pillColor) = when {
-            paused -> Triple(Icons.Rounded.Close, "Paused", heroAmber)
-            st.phase == Link.Phase.CONNECTED -> Triple(Icons.Rounded.CheckCircle, "Connected", heroGreen)
-            st.phase == Link.Phase.CONNECTING -> Triple(Icons.Rounded.Refresh, "Connecting", heroAmber)
-            st.phase == Link.Phase.OFFLINE -> Triple(Icons.Rounded.Warning, "Offline", heroRed)
-            else -> Triple(Icons.Rounded.Info, "Not paired", heroAmber)
+        // ----- hero: connection status first -----
+        val chipColor = when (mode) {
+            Quick.Mode.CONNECTED -> c.primary
+            Quick.Mode.CONNECTING -> c.tertiary
+            else -> c.onSurfaceVariant
         }
-        val title = when {
-            paused -> "Paused"
-            st.phase == Link.Phase.CONNECTED -> "Connected to ${st.macName ?: "your Mac"}"
-            st.phase == Link.Phase.CONNECTING -> "Connecting…"
-            st.phase == Link.Phase.OFFLINE -> "Mac not reachable"
-            else -> "Pair your Mac"
+        val title = when (mode) {
+            Quick.Mode.NOT_PAIRED -> "Pair your Mac"
+            Quick.Mode.CONNECTED -> mac ?: "Your Mac"
+            else -> mac ?: "Your Mac"
         }
-        val sub = when {
-            paused -> "Background connection is off. Turn it on below to sync again."
-            st.phase == Link.Phase.CONNECTED -> "Notifications, codes and clipboard are syncing."
-            st.phase == Link.Phase.CONNECTING -> st.detail.ifEmpty { "Reaching your Mac over the private network." }
-            st.phase == Link.Phase.OFFLINE -> "Check that your Mac is awake and signed in to the same account. ${st.detail}".trim()
-            else -> "Scan the QR code shown by Andromac on your Mac, or paste the pairing link."
+        val sub = when (mode) {
+            Quick.Mode.PAUSED -> "Syncing is paused. Turn it on to sync again."
+            Quick.Mode.CONNECTED -> "Notifications, codes and clipboard are syncing."
+            Quick.Mode.CONNECTING -> st.detail.ifEmpty { "Reaching your Mac over the private network." }
+            Quick.Mode.OFFLINE -> "Make sure your Mac is awake and signed in to the same account."
+            Quick.Mode.NOT_PAIRED -> "Scan the QR code shown by Andromac on your Mac, or paste the pairing link."
         }
-        Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, color = Color.Transparent,
-            border = BorderStroke(1.dp, Color(0xFF2A2A2A))) {
-            Column(Modifier.background(HeroBrush).padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.semantics { contentDescription = "Andromac logo" }) {
-                    OrbitLogo(112.dp, pulse = st.phase == Link.Phase.CONNECTED && !paused)
+        AppCard(Modifier.staggerIn(0)) {
+            Column(Modifier.padding(Sp.x4).animateContentSize(moTween(Mo.Slow)), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(CircleShape).background(c.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                        MacGlyph(if (mode == Quick.Mode.CONNECTED) c.primary else c.onSurfaceVariant, Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(Sp.x3))
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                        Body(if (paired) "Phone connection" else "Not connected yet")
+                    }
                 }
-                StatusPill(icon, pill, pillColor, onDark = true)
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = HeroText,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.semantics { heading() })
-                Text(sub, style = MaterialTheme.typography.bodyMedium, color = HeroSub,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                if (!paired) {
-                    Spacer(Modifier.height(4.dp))
-                    PrimaryButton("Scan QR from your Mac") {
-                        val opts = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
-                            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE).build()
-                        com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(ctx, opts).startScan()
-                            .addOnSuccessListener { b ->
-                                val t = b.rawValue?.trim()
-                                if (t != null && t.startsWith("andromac://")) { Link.savePairing(t); LinkService.start(ctx); Link.restart(); notify("Pairing…") }
-                                else notify("That QR code isn't from Andromac")
-                            }
-                            .addOnFailureListener { notify("Scanner unavailable. Use Paste pairing link instead.") }
+                StatusChip(Quick.stateText(mode), chipColor, pulse = mode == Quick.Mode.CONNECTING,
+                    description = "Connection status: ${Quick.stateText(mode)}${if (mac != null && mode == Quick.Mode.CONNECTED) ", $mac" else ""}")
+                Text(sub, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                when (mode) {
+                    Quick.Mode.NOT_PAIRED -> {
+                        PrimaryButton("Scan QR code") { scanQr(ctx, notify) }
+                        TonalButton("Paste pairing link") { pairFromClipboard(ctx, notify) }
                     }
-                    TonalButton("Paste pairing link") {
-                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val t = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()
-                        if (t != null && t.startsWith("andromac://")) {
-                            Link.savePairing(t); LinkService.start(ctx); Link.restart(); notify("Pairing…")
-                        } else notify("Copy the pairing link on your Mac first")
+                    Quick.Mode.PAUSED -> PrimaryButton("Turn on") { Quick.setOn(ctx, true) }
+                    Quick.Mode.OFFLINE -> PrimaryButton("Try again", icon = Icons.Rounded.Refresh) { Link.restart() }
+                    Quick.Mode.CONNECTING -> LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape)
+                        .semantics { contentDescription = "Connecting" }, color = c.tertiary, trackColor = c.surfaceContainerHigh)
+                    Quick.Mode.CONNECTED -> PrimaryButton("Open Mac screen") { ctx.startActivity(Intent(ctx, ViewerActivity::class.java)) }
+                }
+                // Always available once paired: fully close the connection, or drop it and connect again.
+                if (mode != Quick.Mode.NOT_PAIRED) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        TonalButton("Reconnect", Modifier.weight(1f), icon = Icons.Rounded.Refresh) {
+                            Quick.setOn(ctx, true)                       // make sure the background service is on
+                            Link.restart(); notify("Reconnecting…")
+                        }
+                        if (mode != Quick.Mode.PAUSED) TonalButton("Disconnect", Modifier.weight(1f)) {
+                            Quick.setOn(ctx, false); notify("Disconnected. Tap Turn on to connect again.")
+                        }
                     }
-                } else if (st.phase == Link.Phase.OFFLINE && !paused) {
-                    Spacer(Modifier.height(4.dp))
-                    PrimaryButton("Try again", icon = Icons.Rounded.Refresh) { Link.restart() }
                 }
             }
         }
 
         // ----- network sign-in / error -----
         if (Net.state == "login") {
-            AppCard(container = MaterialTheme.colorScheme.primaryContainer) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AppCard(Modifier.staggerIn(1)) {
+                Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Sign in once", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.semantics { heading() })
+                        Icon(Icons.Rounded.Lock, null, tint = c.tertiary)
+                        Spacer(Modifier.width(Sp.x3))
+                        Text("Sign in once", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                     }
                     Text("Andromac has its own private network built in. Sign in with the same account you use on your Mac.",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
                     PrimaryButton("Sign in") { Net.loginUrl?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } }
                 }
             }
         } else if (Net.state == "error") {
-            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.Top) {
-                Icon(Icons.Rounded.Warning, null, tint = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.width(10.dp))
-                Text("Secure connection problem: ${Net.detail}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-
-        // ----- master switch -----
-        AppCard {
-            val on = Settings.keepConnected
-            SwitchRow(
-                "Stay connected in the background",
-                if (on) "On. Andromac keeps your Mac connected while the app is closed, so notifications, codes and clipboard sync all the time."
-                else "Off. Nothing syncs until you turn this on.",
-                on, { v ->
-                    if (v) { Link.init(ctx); Settings.updateKeepConnected(true); LinkService.start(ctx) }
-                    else { Settings.updateKeepConnected(false); Link.stop(); ctx.stopService(Intent(ctx, LinkService::class.java)) }
-                },
-                icon = Icons.Rounded.Refresh,
-            )
-        }
-
-        // ----- setup checklist -----
-        val netOk = Net.state == "running"
-        val a = if (netOk) 1 else 0
-        val b = if (paired) 1 else 0
-        val c = if (perms.allGood) 1 else 0
-        val done = a + b + c
-        if (done < 3) {
-            Column {
-                Heading("Finish setup")
-                AppCard {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("$done of 3 steps done", style = MaterialTheme.typography.titleMedium)
-                        LinearProgressIndicator(
-                            progress = { done / 3f }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape)
-                                .semantics { contentDescription = "Setup progress, $done of 3 steps done" },
-                            color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        )
-                        StepRow(1, "Sign in to the private network", netOk,
-                            when (Net.state) { "login" -> "Tap Sign in above."; "error" -> "There is a connection problem."; "running" -> "Done."; else -> "Starting up…" })
-                        StepRow(2, "Pair your Mac", paired,
-                            if (paired) "Done." else "Open Andromac on your Mac and tap Scan QR. Or copy the link on the Mac and tap Paste pairing link.")
-                        StepRow(3, "Allow permissions for Andromac", perms.allGood,
-                            if (perms.allGood) "Done." else "Andromac needs these to do its job:")
-                    }
-                    if (!perms.allGood) {
-                        val specs = permSpecs(perms, false, false).filter { !it.ok }
-                        Column(Modifier.padding(bottom = 8.dp)) { specs.forEach { PermRow(it) } }
-                        if (!perms.listener) Text("If the switch is greyed out: Andromac app info, then the menu at the top right, then Allow restricted settings.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            AppCard(Modifier.staggerIn(1)) {
+                Row(Modifier.padding(Sp.x4), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Rounded.Warning, null, tint = c.error)
+                    Spacer(Modifier.width(Sp.x3))
+                    Column(verticalArrangement = Arrangement.spacedBy(Sp.x1)) {
+                        Text("Private network problem", style = MaterialTheme.typography.titleSmall)
+                        Body("Andromac couldn't start its secure connection. Check your internet, then open Settings, Advanced for details.")
                     }
                 }
             }
         }
 
-        // ----- quick cards -----
-        Column {
-            Heading("Quick actions")
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                QuickCard(Icons.Rounded.List, "Clipboard",
-                    if (Settings.syncClipboard) "Syncing both ways in real time. See what was copied." else "Sync is off. Tap to review history and turn it on.") { goTab(1) }
-                QuickCard(null, "View and control your Mac",
-                    if (paired) "See your Mac's screen on this phone." else "Pair your Mac first.", enabled = paired) {
-                    ctx.startActivity(Intent(ctx, ViewerActivity::class.java))
+        // ----- sync: toggles as rows -----
+        Section("Sync") {
+            Column(Modifier.staggerIn(2)) {
+                SwitchRow("Stay connected", if (Settings.keepConnected) "Keeps your Mac connected while the app is closed." else "Nothing syncs until you turn this on.",
+                    Settings.keepConnected, { v -> Quick.setOn(ctx, v) }, icon = Icons.Rounded.Refresh)
+                SwitchRow("Clipboard", "Copy on one device, paste on the other.", Settings.syncClipboard,
+                    { Settings.updateSyncClipboard(it) }, icon = Icons.Rounded.List)
+                SwitchRow("Notifications", "Show your phone's notifications on your Mac.", Settings.mirrorNotifications,
+                    { Settings.setMirror(it) }, icon = Icons.Rounded.Notifications)
+            }
+        }
+
+        // ----- setup: progress, collapses to "All set" -----
+        val netOk = Net.state == "running"
+        val steps = listOf(netOk, paired, perms.allGood)
+        val done = steps.count { it }
+        val complete = paired && perms.allGood && Net.state != "login" && Net.state != "error"
+        val rm = LocalReduced.current
+        AnimatedContent(complete, label = "setup", modifier = Modifier.staggerIn(3),
+            transitionSpec = { fadeIn(motion(rm, Mo.Slow)) togetherWith fadeOut(motion(rm, Mo.Fast)) using SizeTransform(clip = false) { _, _ -> motion(rm, Mo.Slow) } }) { ok ->
+            if (ok) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x1, vertical = Sp.x2).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CheckCircle, null, tint = c.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(Sp.x2))
+                    Text("All set. Everything is ready.", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
+                    Heading("Setup")
+                    AppCard {
+                        Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
+                            Text("$done of 3 done", style = MaterialTheme.typography.titleMedium)
+                            val prog by animateFloatAsState(done / 3f, moTween(Mo.Slow), label = "prog")
+                            LinearProgressIndicator(
+                                progress = { prog }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape)
+                                    .semantics { contentDescription = "Setup progress, $done of 3 done" },
+                                color = c.primary, trackColor = c.surfaceContainerHigh, gapSize = 0.dp, drawStopIndicator = {},
+                            )
+                            StepRow(1, "Private network", netOk,
+                                when (Net.state) { "login" -> "Tap Sign in above."; "error" -> "There is a connection problem."; "running" -> "Ready."; else -> "Starting up…" })
+                            StepRow(2, "Pair your Mac", paired,
+                                if (paired) "Paired." else "Scan the QR code on your Mac, or copy the pairing link there and paste it here.")
+                            StepRow(3, "Permissions", perms.allGood, if (perms.allGood) "Granted." else "Andromac needs these to do its job:")
+                        }
+                        if (!perms.allGood) {
+                            val specs = permSpecs(perms, false, false).filter { !it.ok }
+                            Column(Modifier.padding(bottom = Sp.x2)) { specs.forEach { PermRow(it) } }
+                            if (!perms.listener) Body("If the switch is greyed out: open app info, tap the menu at the top right, then Allow restricted settings.",
+                                Modifier.padding(horizontal = Sp.x4, vertical = Sp.x2))
+                        }
+                    }
+                }
+            }
+        }
+
+        // ----- recent clipboard -----
+        val last = ClipHistory.items.firstOrNull()
+        Section("Recent") {
+            if (last == null) {
+                Row(Modifier.fillMaxWidth().padding(Sp.x4), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.List, null, tint = c.onSurfaceVariant)
+                    Spacer(Modifier.width(Sp.x3))
+                    Body("Nothing copied yet. Copy something on your Mac or phone and it shows up here.", Modifier.weight(1f))
+                }
+            } else {
+                val src = if (last.fromMac) "Mac" else "Phone"
+                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(role = Role.Button, onClickLabel = "Open clipboard history") { goTab(1) }
+                    .padding(horizontal = Sp.x4, vertical = Sp.x3)
+                    .semantics(mergeDescendants = true) { contentDescription = "Last copied, from $src. ${if (last.image != null) "Image" else last.text.take(120)}" },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    SourceBadge(last.fromMac)
+                    Spacer(Modifier.width(Sp.x3))
+                    Text(if (last.image != null) "Image" else last.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Rounded.KeyboardArrowRight, null, tint = c.onSurfaceVariant)
                 }
             }
         }
@@ -480,57 +410,33 @@ private fun HomeTab(tick: Int, goTab: (Int) -> Unit, notify: (String) -> Unit) {
 
 @Composable
 private fun StepRow(n: Int, title: String, ok: Boolean, sub: String) {
-    Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-        stateDescription = if (ok) "Done" else "Not done"
-    }, verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier.size(28.dp).clip(CircleShape)
-                .background(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (ok) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
-            else Text("$n", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+    val c = MaterialTheme.colorScheme
+    val bg by animateColorAsState(if (ok) c.primary else c.surfaceContainerHigh, moTween(Mo.Normal), label = "step")
+    Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { stateDescription = if (ok) "Done" else "Not done" }, verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(28.dp).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
+            if (ok) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = c.onPrimary)
+            else Text("$n", style = MaterialTheme.typography.labelLarge, color = c.onSurface)
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Sp.x3))
         Column {
-            Text("Step $n: $title", style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall)
             Body(sub)
         }
     }
 }
 
 @Composable
-private fun QuickCard(icon: ImageVector?, title: String, sub: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick, enabled = enabled, shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            val tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                if (icon != null) Icon(icon, null, tint = tint) else MacGlyph(tint)
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Body(sub)
-            }
-            Icon(Icons.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 private fun PermRow(p: PermSpec) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
+    val c = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x4, vertical = Sp.x2), verticalAlignment = Alignment.Top) {
         Icon(if (p.ok) Icons.Rounded.CheckCircle else Icons.Rounded.Warning, null,
-            tint = if (p.ok) LocalStatusColors.current.ok else LocalStatusColors.current.warn)
-        Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(p.title, style = MaterialTheme.typography.titleSmall)
-            Body(if (p.ok) "Allowed for Andromac" else p.hint)
-            if (!p.ok) FilledTonalButton(onClick = p.fix, modifier = Modifier.padding(top = 6.dp).heightIn(min = 48.dp).semantics { contentDescription = "${p.action}: ${p.title} for Andromac" },
-                shape = RoundedCornerShape(14.dp)) { Text(p.action) }
+            tint = if (p.ok) c.primary else LocalStatusColors.current.warn)
+        Column(Modifier.weight(1f).padding(start = Sp.x3), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(p.title, style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.semantics { stateDescription = if (p.ok) "Granted" else "Needs attention" })
+            Body(if (p.ok) "Granted" else p.hint)
+            if (!p.ok) FilledTonalButton(onClick = p.fix, modifier = Modifier.padding(top = Sp.x2).heightIn(min = 48.dp)
+                .semantics { contentDescription = "${p.action}: ${p.title} for Andromac" }, shape = RoundedCornerShape(50)) { Text(p.action) }
         }
     }
 }
@@ -550,71 +456,59 @@ private fun relTime(now: Long, t: Long): String {
 @Composable
 private fun ClipboardTab(notify: (String) -> Unit) {
     val ctx = LocalContext.current
+    val c = MaterialTheme.colorScheme
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(15_000) } }
     val items = ClipHistory.items
+    val rm = LocalReduced.current
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Sp.x4, end = Sp.x4, bottom = Sp.x4),
+        verticalArrangement = Arrangement.spacedBy(Sp.x3),
     ) {
         item {
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = Sp.x4, start = Sp.x1), verticalAlignment = Alignment.CenterVertically) {
                 Text("Clipboard", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).semantics { heading() })
                 if (items.isNotEmpty()) TextButton(onClick = { ClipHistory.clear(); notify("History cleared") }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Clear")
+                    Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(Sp.x2)); Text("Clear")
                 }
             }
         }
         item {
-            AppCard {
+            AppCard(Modifier.staggerIn(0)) {
                 SwitchRow("Sync clipboard",
-                    if (Settings.syncClipboard) "Copy on your phone or Mac and it appears on the other one automatically, in real time."
-                    else "Off. Copied text stays on the device where you copied it.",
+                    if (Settings.syncClipboard) "Copy on one device and paste on the other, in real time."
+                    else "Off. Copied items stay on the device where you copied them.",
                     Settings.syncClipboard, { Settings.updateSyncClipboard(it) }, icon = Icons.Rounded.Refresh)
-            }
-        }
-        item {
-            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.Top) {
-                Icon(Icons.Rounded.Info, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                Body("Everything you copy on either device is saved here and swapped with your Mac each time you connect, even items copied while you were offline. Items from your Mac also appear in this phone's own clipboard history (Gboard or Samsung keyboard). Saved only on this phone; Clear removes it.")
             }
         }
         if (items.isEmpty()) {
             item {
-                Column(Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.List, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
-                    }
-                    Text("Nothing copied yet", style = MaterialTheme.typography.titleLarge,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    Text("Copy text, a link or an image on your Mac or this phone. It will show up here and on the other device.",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+                EmptyState(Icons.Rounded.List, "Nothing copied yet",
+                    "Copy text, a link or an image on your Mac or this phone. It will show up here and on the other device.")
             }
         } else {
-            item { Heading("Recent, tap to copy again") }
-            items(items.toList(), key = { it.key }) { it ->
+            item { Heading("Recent. Tap to copy again") }
+            itemsIndexed(items.toList(), key = { _, it -> it.key }) { idx, it ->
                 val src = if (it.fromMac) "Mac" else "Phone"
-                Surface(
+                PressCard(
                     onClick = { ClipHistory.recopy(ctx, it); notify("Copied again") },
-                    shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics(mergeDescendants = true) {
-                        contentDescription = "From $src, ${relTime(now, it.time)}. ${if (it.image != null) "Image" else it.text.take(200)}. Double tap to copy again."
-                    },
+                    modifier = Modifier.animateItem(fadeInSpec = moTween(Mo.Normal), fadeOutSpec = moTween(Mo.Fast), placementSpec = moTween(Mo.Normal)).staggerIn(idx + 1)
+                        .heightIn(min = 64.dp).semantics(mergeDescendants = true) {
+                            contentDescription = "From $src, ${relTime(now, it.time)}. ${if (it.image != null) "Image" else it.text.take(200)}. Double tap to copy again."
+                        },
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SourceBadge(it.fromMac)
                             Spacer(Modifier.weight(1f))
-                            Text(relTime(now, it.time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            AnimatedContent(relTime(now, it.time), label = "rel", transitionSpec = {
+                                (slideInVertically(motion(rm, Mo.Normal)) { h -> h / 2 } + fadeIn(motion(rm, Mo.Normal))) togetherWith
+                                    (slideOutVertically(motion(rm, Mo.Fast)) { h -> -h / 2 } + fadeOut(motion(rm, Mo.Fast)))
+                            }) { t -> Text(t, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant) }
                         }
                         if (it.image != null) {
                             val bmp = remember(it.key) { ImageCodec.thumbnail(it.image)?.asImageBitmap() }
-                            if (bmp != null) androidx.compose.foundation.Image(bmp, "Copied image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp)),
+                            if (bmp != null) Image(bmp, "Copied image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(Rad.m)),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterStart)
                             else Text("Image", style = MaterialTheme.typography.bodyLarge)
                         } else Text(it.text, style = MaterialTheme.typography.bodyLarge, maxLines = 4, overflow = TextOverflow.Ellipsis)
@@ -629,13 +523,13 @@ private fun ClipboardTab(notify: (String) -> Unit) {
 private fun SourceBadge(fromMac: Boolean) {
     val c = MaterialTheme.colorScheme
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(if (fromMac) c.secondaryContainer else c.primaryContainer).padding(horizontal = 10.dp, vertical = 4.dp),
+        Modifier.clip(CircleShape).background(c.surfaceContainerHigh).padding(horizontal = Sp.x3, vertical = Sp.x1),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val tint = if (fromMac) c.onSecondaryContainer else c.onPrimaryContainer
+        val tint = if (fromMac) c.tertiary else c.primary
         if (fromMac) MacGlyph(tint, Modifier.size(16.dp)) else Icon(Icons.Rounded.Phone, null, Modifier.size(16.dp), tint = tint)
         Spacer(Modifier.width(6.dp))
-        Text(if (fromMac) "Mac" else "Phone", style = MaterialTheme.typography.labelMedium, color = tint)
+        Text(if (fromMac) "Mac" else "Phone", style = MaterialTheme.typography.labelMedium, color = c.onSurface)
     }
 }
 
@@ -643,9 +537,9 @@ private fun SourceBadge(fromMac: Boolean) {
 @Composable
 private fun FeatureCard(icon: ImageVector?, title: String, body: String, action: String, enabled: Boolean = true, onClick: () -> Unit) {
     AppCard {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                if (icon != null) Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) else MacGlyph(MaterialTheme.colorScheme.onPrimaryContainer)
+        Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                if (icon != null) Icon(icon, null, tint = MaterialTheme.colorScheme.primary) else MacGlyph(MaterialTheme.colorScheme.primary)
             }
             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
             Body(body)
@@ -660,19 +554,23 @@ private fun ScreenTab(tick: Int) {
     val a11yOn = remember(tick) { isA11yOn(ctx) }
     var sharing by remember(tick) { mutableStateOf(ScreenShareState.active) }
     Page("Screen") {
-        FeatureCard(null, "View and control your Mac",
-            "See your Mac's screen on this phone and use it like a touchpad. Touch to click, drag to move, two fingers to scroll, long-press to right-click. Your Mac asks you first.",
-            "Open Mac screen", enabled = Link.isPaired) { ctx.startActivity(Intent(ctx, ViewerActivity::class.java)) }
-        FeatureCard(Icons.Rounded.Share, if (sharing) "Sharing your screen" else "Control this phone from your Mac",
-            "Your Mac shows this screen in a window and can tap, swipe and type. You approve every session and can stop at any time.",
-            if (sharing) "Stop sharing" else "Start sharing", enabled = Link.isPaired) {
-            if (sharing) { ScreenShareState.stop(ctx); sharing = false } else ScreenShareState.start(ctx)
+        Column(Modifier.staggerIn(0)) {
+            FeatureCard(null, "View and control your Mac",
+                "See your Mac's screen on this phone and use it like a touchpad. Touch to click, drag to move, two fingers to scroll, long-press to right-click. Your Mac asks you first.",
+                "Open Mac screen", enabled = Link.isPaired) { ctx.startActivity(Intent(ctx, ViewerActivity::class.java)) }
+        }
+        Column(Modifier.staggerIn(1)) {
+            FeatureCard(Icons.Rounded.Share, if (sharing) "Sharing your screen" else "Control this phone from your Mac",
+                "Your Mac shows this screen in a window and can tap, swipe and type. You approve every session and can stop at any time.",
+                if (sharing) "Stop sharing" else "Start sharing", enabled = Link.isPaired) {
+                if (sharing) { ScreenShareState.stop(ctx); sharing = false } else ScreenShareState.start(ctx)
+            }
         }
         Section("Let your Mac control this phone") {
-            if (a11yOn) Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.CheckCircle, null, tint = LocalStatusColors.current.ok); Spacer(Modifier.width(12.dp))
+            if (a11yOn) Row(Modifier.padding(Sp.x4), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(Sp.x3))
                 Text("Accessibility is on for Andromac", style = MaterialTheme.typography.bodyLarge)
-            } else Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            } else Column(Modifier.padding(Sp.x4), verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
                 Body("Without this your Mac can see the screen but cannot tap or type. Android needs two quick steps:")
                 Text("Step 1 (if needed)", style = MaterialTheme.typography.titleSmall)
                 Body("Open Andromac's app info, tap the menu at the top right and choose Allow restricted settings. If you don't see it, go to step 2.")
@@ -682,7 +580,7 @@ private fun ScreenTab(tick: Int) {
                 PrimaryButton("Open Accessibility") { ctx.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }
             }
         }
-        if (!Link.isPaired) Body("Pair your Mac on the Home tab first.", Modifier.padding(horizontal = 8.dp))
+        if (!Link.isPaired) Body("Pair your Mac on the Home tab first.", Modifier.padding(horizontal = Sp.x2))
     }
 }
 
@@ -690,61 +588,84 @@ private fun ScreenTab(tick: Int) {
 @Composable
 private fun SettingsTab(tick: Int, openApps: () -> Unit) {
     val ctx = LocalContext.current
+    val c = MaterialTheme.colorScheme
     val perms = remember(tick, Link.state) { readPerms(ctx) }
     val a11yOn = remember(tick) { isA11yOn(ctx) }
     val specs = permSpecs(perms, true, a11yOn)
+    var advanced by rememberSaveable { mutableStateOf(false) }
     Page("Settings") {
-        Section("Permissions for Andromac") {
+        Section("What to sync") {
+            SwitchRow("Phone notifications on Mac", "Send what arrives here to your Mac.", Settings.mirrorNotifications, { Settings.setMirror(it) })
+            SwitchRow("Mac notifications on phone", "Show your Mac's alerts here.", Settings.showMacNotifications, { Settings.setMac(it) })
+            SwitchRow("SMS and codes", "Forward verification codes to your Mac.", Settings.forwardSms, { Settings.setSms(it) })
+            SwitchRow("Skip ongoing notifications", "Charging, music and similar.", Settings.hideOngoing, { Settings.updateHideOngoing(it) })
+            SwitchRow("Clipboard", "Real time, both ways.", Settings.syncClipboard, { Settings.updateSyncClipboard(it) })
+            NavRow("Choose apps", if (Settings.muted.isEmpty()) "All apps are sent" else "${Settings.muted.size} muted", openApps)
+        }
+        Section("Permissions") {
             specs.forEach { PermRow(it) }
             if (!perms.listener || !a11yOn) Body(
                 "If a switch is greyed out: open Andromac's app info, tap the menu at the top right and choose Allow restricted settings, then try again.",
-                Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-            TextButton(onClick = { appInfo(ctx) }, modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp)) { Text("Open Andromac app info") }
-        }
-        Section("What to sync") {
-            SwitchRow("Phone notifications on Mac", null, Settings.mirrorNotifications, { Settings.setMirror(it) })
-            SwitchRow("Mac notifications on phone", null, Settings.showMacNotifications, { Settings.setMac(it) })
-            SwitchRow("SMS and OTP codes", null, Settings.forwardSms, { Settings.setSms(it) })
-            SwitchRow("Skip ongoing notifications", "Charging, music and similar", Settings.hideOngoing, { Settings.updateHideOngoing(it) })
-            SwitchRow("Clipboard", "Real time, both ways", Settings.syncClipboard, { Settings.updateSyncClipboard(it) })
-            NavRow("Choose apps", "${Settings.muted.size} muted", openApps)
-        }
-        Section("Terminal access (Termux, SSH)") {
-            SwitchRow("SSH bridge to your Mac", "Reach your Mac from Termux even when the Tailscale app is off. Sessions survive Wi-Fi and mobile-data changes.",
-                Settings.terminalBridge, { Settings.updateTerminalBridge(it) })
-            if (Settings.terminalBridge) {
-                Body("In Termux, add this to ~/.ssh/config, then run  ssh m5  (long-press the text to copy):", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Text("Host m5\n  HostName 127.0.0.1\n  Port 2222\n  User ${Link.macUser.ifEmpty { "<your Mac username>" }}\n  ServerAliveInterval 15\n  ServerAliveCountMax 4",
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
-                }
-                Body("Needs Remote Login turned on in your Mac's Sharing settings.", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-            }
+                Modifier.padding(horizontal = Sp.x4, vertical = Sp.x2))
+            TextButton(onClick = { appInfo(ctx) }, modifier = Modifier.padding(horizontal = Sp.x2).heightIn(min = 48.dp)) { Text("Open Andromac app info") }
         }
         Section("Private network") {
             val signedIn = Net.state == "running"
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(horizontal = Sp.x4, vertical = Sp.x3), verticalArrangement = Arrangement.spacedBy(Sp.x1)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (signedIn) Icons.Rounded.CheckCircle else Icons.Rounded.Refresh, null,
-                        tint = if (signedIn) LocalStatusColors.current.ok else LocalStatusColors.current.warn)
-                    Spacer(Modifier.width(10.dp))
+                        tint = if (signedIn) c.primary else c.onSurfaceVariant)
+                    Spacer(Modifier.width(Sp.x3))
                     Text(if (signedIn) "Signed in" else if (Net.state == "login") "Waiting for sign-in" else if (Net.state == "error") "Problem" else "Starting…",
                         style = MaterialTheme.typography.titleMedium)
                 }
                 if (Net.account.isNotEmpty()) Body(Net.account)
-                if (Net.deviceName.isNotEmpty() || Net.ip != null) Body("${Net.deviceName}  ${Net.ip ?: ""}".trim())
-                Body("Built into Andromac, no separate Tailscale app needed.")
+                Body("Built into Andromac. No separate app needed.")
             }
-            if (signedIn) TextButton(onClick = { Net.signOut() }, modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp)) { Text("Sign out or switch account") }
-            else if (Net.state == "login") PrimaryButton("Sign in", Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            if (signedIn) TextButton(onClick = { Net.signOut() }, modifier = Modifier.padding(horizontal = Sp.x2).heightIn(min = 48.dp)) { Text("Sign out or switch account") }
+            else if (Net.state == "login") PrimaryButton("Sign in", Modifier.padding(horizontal = Sp.x4, vertical = Sp.x2)) {
                 Net.loginUrl?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
             }
         }
-        if (Link.isPaired) TextButton(onClick = { Link.unpair() }, modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp)) {
-            Text("Unpair this Mac", color = MaterialTheme.colorScheme.error)
+        // Advanced: terminal access and network details
+        Column(verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
+            Heading("Advanced")
+            AppCard {
+                val rot by animateFloatAsState(if (advanced) 90f else 0f, moTween(Mo.Normal), label = "adv")
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .semantics { stateDescription = if (advanced) "Expanded" else "Collapsed" }
+                    .clickable(role = Role.Button) { advanced = !advanced }.padding(horizontal = Sp.x4, vertical = Sp.x3),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Terminal and network details", style = MaterialTheme.typography.bodyLarge)
+                        Body("For Termux and SSH users")
+                    }
+                    Icon(Icons.Rounded.KeyboardArrowRight, null, Modifier.graphicsLayer { rotationZ = rot }, tint = c.onSurfaceVariant)
+                }
+                AnimatedVisibility(advanced, enter = expandVertically(moTween(Mo.Slow)) + fadeIn(moTween(Mo.Normal)),
+                    exit = shrinkVertically(moTween(Mo.Normal)) + fadeOut(moTween(Mo.Fast))) {
+                    Column {
+                        SwitchRow("Terminal access", "Reach your Mac from Termux over SSH, even when other VPN apps are off. Sessions survive Wi-Fi and mobile-data changes.",
+                            Settings.terminalBridge, { Settings.updateTerminalBridge(it) })
+                        if (Settings.terminalBridge) {
+                            Body("In Termux, add this to ~/.ssh/config, then run  ssh m5  (long-press the text to copy):", Modifier.padding(horizontal = Sp.x4, vertical = Sp.x1))
+                            androidx.compose.foundation.text.selection.SelectionContainer {
+                                Text("Host m5\n  HostName 127.0.0.1\n  Port 2222\n  User ${Link.macUser.ifEmpty { "<your Mac username>" }}\n  ServerAliveInterval 15\n  ServerAliveCountMax 4",
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = Sp.x4, vertical = Sp.x2))
+                            }
+                            Body("Needs Remote Login turned on in your Mac's Sharing settings.", Modifier.padding(horizontal = Sp.x4, vertical = Sp.x1))
+                        }
+                        if (Net.deviceName.isNotEmpty() || Net.ip != null) Body("Network address: ${Net.deviceName}  ${Net.ip ?: ""}".trim(), Modifier.padding(Sp.x4))
+                        if (Net.state == "error") Body("Network error: ${Net.detail}", Modifier.padding(horizontal = Sp.x4, vertical = Sp.x2))
+                    }
+                }
+            }
         }
-        Text("Andromac 0.3", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (Link.isPaired) TextButton(onClick = { Link.unpair() }, modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp)) {
+            Text("Unpair this Mac", color = c.error)
+        }
+        Text("Andromac 0.3", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
@@ -771,39 +692,49 @@ private fun AppsScreen(back: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Choose apps", modifier = Modifier.semantics { heading() }) },
-                navigationIcon = { IconButton(onClick = back) { Icon(Icons.Rounded.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(onClick = back, modifier = Modifier.size(48.dp)) { Icon(Icons.Rounded.ArrowBack, "Back") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            Body("Choose which apps' notifications are sent to your Mac.", Modifier.padding(horizontal = 20.dp))
+            Body("Choose which apps' notifications are sent to your Mac.", Modifier.padding(horizontal = Sp.x4))
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                label = { Text("Search apps") }, shape = RoundedCornerShape(16.dp),
+                label = { Text("Search apps") }, shape = RoundedCornerShape(Rad.s),
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Sp.x4, vertical = Sp.x2),
             )
             val list = apps
             if (list == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                // skeleton rows instead of a spinner
+                Column(Modifier.fillMaxSize().padding(horizontal = Sp.x4).semantics { contentDescription = "Loading apps" }, verticalArrangement = Arrangement.spacedBy(Sp.x3)) {
+                    repeat(8) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Skeleton(Modifier.size(40.dp), CircleShape)
+                            Spacer(Modifier.width(Sp.x3))
+                            Skeleton(Modifier.height(16.dp).fillMaxWidth(0.5f))
+                        }
+                    }
+                }
             } else {
                 val shown = remember(list, query) { list.filter { it.label.contains(query, ignoreCase = true) } }
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(shown, key = { it.pkg }) { a ->
+                if (shown.isEmpty()) EmptyState(Icons.Rounded.Search, "No apps found", "Try a different name.")
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = Sp.x6)) {
+                    itemsIndexed(shown, key = { _, a -> a.pkg }) { idx, a ->
                         val on = a.pkg !in Settings.muted
+                        val src = remember { MutableInteractionSource() }
+                        val pressed by src.collectIsPressedAsState()
                         Row(
-                            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                            Modifier.fillMaxWidth().heightIn(min = 56.dp).animateItem().staggerIn(idx)
                                 .semantics { stateDescription = if (on) "On" else "Off" }
-                                .toggleable(on, role = Role.Switch, onValueChange = { Settings.setMuted(a.pkg, !it) })
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .toggleable(on, role = Role.Switch, interactionSource = src, indication = ripple(), onValueChange = { Settings.setMuted(a.pkg, !it) })
+                                .padding(horizontal = Sp.x4, vertical = Sp.x2),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             AppIcon(a.pkg)
-                            Text(a.label, Modifier.weight(1f).padding(horizontal = 14.dp), style = MaterialTheme.typography.bodyLarge)
-                            Switch(on, null, thumbContent = if (on) {
-                                { Icon(Icons.Rounded.Check, null, Modifier.size(SwitchDefaults.IconSize)) }
-                            } else null)
+                            Text(a.label, Modifier.weight(1f).padding(horizontal = Sp.x4), style = MaterialTheme.typography.bodyLarge)
+                            AppSwitch(on, pressed)
                         }
                     }
                 }
@@ -825,5 +756,5 @@ private fun AppIcon(pkg: String) {
     }
     val b = bmp
     if (b != null) Image(b.asImageBitmap(), null, Modifier.size(40.dp))
-    else Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+    else Skeleton(Modifier.size(40.dp), CircleShape)
 }

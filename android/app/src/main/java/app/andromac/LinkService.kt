@@ -13,13 +13,20 @@ class LinkService : Service() {
 
     private fun build(): Notification {
         val st = Link.state
-        val text = when (st.phase) {
+        val paused = !Settings.keepConnected
+        val text = if (paused) "Paused" else when (st.phase) {
             Link.Phase.CONNECTED -> "Connected to ${st.macName ?: "your Mac"}"
             Link.Phase.CONNECTING -> "Connecting…"
             Link.Phase.OFFLINE -> "Mac not reachable — retrying"
             Link.Phase.NOT_PAIRED -> "Not paired"
         }
+        val fl = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val toggle = PendingIntent.getForegroundService(this, 21, Intent(this, LinkService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            fl)
+        val screen = PendingIntent.getActivity(this, 22, Quick.viewerIntent(this), fl)
         return NotificationCompat.Builder(this, "link")
+            .addAction(0, if (paused) "Resume" else "Pause", toggle)
+            .addAction(0, "Mac screen", screen)
             .setSmallIcon(R.drawable.ic_stat).setContentTitle("Andromac").setContentText(text)
             .setOngoing(true).setPriority(NotificationCompat.PRIORITY_MIN).setOnlyAlertOnce(true)
             .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
@@ -34,6 +41,14 @@ class LinkService : Service() {
         nm.createNotificationChannel(NotificationChannel("link", "Connection status", NotificationManager.IMPORTANCE_MIN))
         // Android requires startForeground() right after startForegroundService(), even if we are about to stop:
         // quitting first crashes the whole app ("did not then call Service.startForeground()").
+        if (intent?.action == ACTION_PAUSE) {
+            // keep the (paused) notification so "Resume" stays reachable
+            Link.init(this); Settings.updateKeepConnected(false); Link.stop()
+            startForeground(1, build(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            Quick.refreshAll(this)
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RESUME) { Link.init(this); Settings.updateKeepConnected(true) }
         startForeground(1, build(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         if (!Settings.keepConnected) { Link.stop(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY }
         Link.init(this)
@@ -73,6 +88,8 @@ class LinkService : Service() {
     }
 
     companion object {
+        const val ACTION_PAUSE = "app.andromac.PAUSE"
+        const val ACTION_RESUME = "app.andromac.RESUME"
         /** Starts the background connection, unless the user turned it off with the switch. */
         fun start(ctx: Context) {
             Settings.load(ctx)

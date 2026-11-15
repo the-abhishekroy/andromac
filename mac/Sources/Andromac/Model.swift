@@ -433,6 +433,17 @@ final class AppModel: ObservableObject {
 
     func clearClipboardHistory() { clipboardHistory.removeAll(); saveClips() }
 
+    /// Fully drop the connection (private network helper and phone session), then bring it up again.
+    func reconnect() {
+        if !connectionEnabled { connectionEnabled = true; return }
+        tunnel.stop(); server.disconnect()
+        tunnelState = "starting"; tunnelIP = nil; connected = false; battery = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.connectionEnabled else { return }
+            self.tunnel.start(port: self.port)
+        }
+    }
+
     private func applyConnection() {
         if connectionEnabled {
             if tunnelState == "off" || tunnelState == "error" { tunnelState = "starting"; tunnel.start(port: port) }

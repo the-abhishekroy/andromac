@@ -2,4 +2,5 @@
     <string name="app_name">Andromac</string>
     <string name="tile_label">Send clipboard</string>
     <string name="a11y_description">Lets your paired Mac tap, swipe and type on this phone while you share your screen. Used only when you start a control session.</string>
+    <string name="widget_description">See if your Mac is connected, pause or resume, and open your Mac screen.</string>
 </resources>

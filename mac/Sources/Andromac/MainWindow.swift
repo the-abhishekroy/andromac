@@ -296,6 +296,18 @@ struct DeviceCard: View {
                 }
                 .accessibilityElement(children: .contain)
             }
+            HStack(spacing: 10) {
+                Button { m.reconnect() } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
+                    .buttonStyle(.brandCompact).accessibilityHint("Drops the connection completely and connects again")
+                if m.connectionEnabled {
+                    Button { m.connectionEnabled = false } label: { Label("Disconnect", systemImage: "power") }
+                        .buttonStyle(.brandCompact).accessibilityHint("Closes the connection completely until you turn it on again")
+                } else {
+                    Button { m.connectionEnabled = true } label: { Label("Connect", systemImage: "power") }
+                        .buttonStyle(.brandCompact)
+                }
+                Spacer()
+            }
             if m.uiState == .problem {
                 HStack(spacing: 10) {
                     Label("Check the private network", systemImage: "exclamationmark.triangle.fill").font(.callout.weight(.semibold)).foregroundStyle(Brand.danger)

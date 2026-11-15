@@ -56,7 +56,7 @@ object Link {
     fun pairingLink(): String? = prefs().getString("link", null)
     fun savePairing(link: String) { prefs().edit().putString("link", link).apply() }
 
-    private fun pushState(s: State) { main.post { state = s; onState?.invoke(s) } }
+    private fun pushState(s: State) { main.post { state = s; onState?.invoke(s); Quick.refreshAll(app) } }
 
     fun start() {
         if (running) return

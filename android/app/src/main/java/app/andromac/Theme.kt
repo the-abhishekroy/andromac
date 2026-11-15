@@ -1,6 +1,7 @@
 package app.andromac
 
 import android.provider.Settings as AndroidSettings
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -63,23 +64,43 @@ private val LightScheme = lightColorScheme(
     inverseSurface = Color(0xFF121212), inverseOnSurface = Color(0xFFF5F5F5), inversePrimary = Brand.Green,
 )
 
+/** Spacing (4/8 scale), radius and motion tokens. Use these, never raw numbers, in screens. */
+object Sp { val x1 = 4.dp; val x2 = 8.dp; val x3 = 12.dp; val x4 = 16.dp; val x6 = 24.dp; val x8 = 32.dp; val x12 = 48.dp }
+object Rad { val xs = 4.dp; val s = 8.dp; val m = 12.dp; val l = 16.dp; val xl = 28.dp }
+object Mo {
+    const val Fast = 150; const val Normal = 200; const val Slow = 300
+    val Emph = CubicBezierEasing(0.2f, 0f, 0f, 1f)   // emphasized decelerate
+}
+
+val LocalReduced = staticCompositionLocalOf { false }
+
+fun <T> motion(reduced: Boolean, ms: Int = Mo.Normal): FiniteAnimationSpec<T> = if (reduced) snap() else tween(ms, easing = Mo.Emph)
+
+@Composable
+fun <T> moTween(ms: Int = Mo.Normal): FiniteAnimationSpec<T> = motion(LocalReduced.current, ms)
+
+/** Spring for switches, chips and success moments. Snaps when the user turned animations off. */
+@Composable
+fun <T> moSpring(): FiniteAnimationSpec<T> =
+    if (LocalReduced.current) snap() else spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow)
+
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp), small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(Rad.xs), small = RoundedCornerShape(Rad.s),
+    medium = RoundedCornerShape(Rad.m), large = RoundedCornerShape(Rad.l), extraLarge = RoundedCornerShape(Rad.xl),
 )
 
 private val Base = Typography()
 private val AppTypography = Typography(
-    headlineLarge = Base.headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 40.sp),
-    headlineMedium = Base.headlineMedium.copy(fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 34.sp),
-    headlineSmall = Base.headlineSmall.copy(fontWeight = FontWeight.Bold, fontSize = 23.sp, lineHeight = 30.sp),
-    titleLarge = Base.titleLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 28.sp),
-    titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
+    headlineLarge = Base.headlineLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp),
+    headlineMedium = Base.headlineMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 34.sp),
+    headlineSmall = Base.headlineSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
+    titleLarge = Base.titleLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
+    titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
     titleSmall = Base.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
-    bodyLarge = Base.bodyLarge.copy(fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = Base.bodyMedium.copy(fontSize = 14.sp, lineHeight = 21.sp),
+    bodyLarge = Base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp),
+    bodyMedium = Base.bodyMedium.copy(fontSize = 15.sp, lineHeight = 22.sp),
     bodySmall = Base.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
-    labelLarge = Base.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    labelLarge = Base.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, lineHeight = 20.sp),
     labelMedium = Base.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp),
 )
 
@@ -88,7 +109,7 @@ fun AndromacTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val status = if (dark) StatusColors(Brand.Green, Color(0xFFF5B942), Color(0xFFFF8A80))
     else StatusColors(Color(0xFF0A6B39), Color(0xFF8A5300), Color(0xFFB3261E))
-    CompositionLocalProvider(LocalStatusColors provides status) {
+    CompositionLocalProvider(LocalStatusColors provides status, LocalReduced provides rememberReducedMotion()) {
         MaterialTheme(
             colorScheme = if (dark) DarkScheme else LightScheme,
             shapes = AppShapes, typography = AppTypography, content = content,

@@ -54,12 +54,45 @@ class NotifService : NotificationListenerService() {
         }
     }
 
-    private fun appIcon(pkg: String): String? {
-        iconCache[pkg]?.let { return it }
-        return runCatching {
-            val bmp = packageManager.getApplicationIcon(pkg).toBitmap(96, 96)
-            Badge.encode(bmp).also { iconCache[pkg] = it }
-        }.getOrNull()
+    private data class AppInfoLite(val label: String, val iconB64: String?)
+    private val infoCache = HashMap<String, AppInfoLite>()
+
+    /** "com.snapchat.android" -> "Snapchat": a readable name when Android won't tell us the real one. */
+    private fun friendlyName(pkg: String): String {
+        val skip = setOf("com", "org", "net", "in", "io", "android", "app", "apps", "google", "mobile", "messenger")
+        val part = pkg.split('.').lastOrNull { it !in skip && it.length > 2 } ?: pkg.substringAfterLast('.')
+        return part.replaceFirstChar { it.uppercase() }
+    }
+
+    /**
+     * Name and icon of the app behind a notification. Apps in another profile (Secure Folder, work profile) are invisible to
+     * PackageManager, so ask LauncherApps for that profile the way a launcher does, then fall back to a readable name.
+     */
+    private fun describe(sbn: StatusBarNotification): AppInfoLite {
+        val pkg = sbn.packageName
+        val ck = pkg + "@" + sbn.user.hashCode()
+        infoCache[ck]?.let { return it }
+        val pm = packageManager
+        var label: String? = null
+        var bmp: android.graphics.Bitmap? = null
+        runCatching {
+            val ai = pm.getApplicationInfo(pkg, 0)
+            label = pm.getApplicationLabel(ai).toString(); bmp = pm.getApplicationIcon(ai).toBitmap(96, 96)
+        }
+        if (label == null || bmp == null) runCatching {
+            val act = getSystemService(android.content.pm.LauncherApps::class.java).getActivityList(pkg, sbn.user).firstOrNull()
+            if (act != null) { if (label == null) label = act.label.toString(); if (bmp == null) bmp = act.getIcon(0).toBitmap(96, 96) }
+        }
+        if (bmp == null) runCatching {                    // last resort: the notification's own small icon on a dark tile
+            val d = sbn.notification.smallIcon?.loadDrawable(this)
+            if (d != null) {
+                val tile = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
+                val c = android.graphics.Canvas(tile)
+                c.drawRoundRect(android.graphics.RectF(0f, 0f, 96f, 96f), 22f, 22f, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E1E1E.toInt() })
+                d.setBounds(22, 22, 74, 74); d.setTint(0xFFFFFFFF.toInt()); d.draw(c); bmp = tile
+            }
+        }
+        return AppInfoLite(label ?: friendlyName(pkg), bmp?.let { Badge.encode(it) }).also { infoCache[ck] = it }
     }
 
     override fun onListenerConnected() { instance = this; Link.init(this); LinkService.start(this) }
@@ -76,6 +109,9 @@ class NotifService : NotificationListenerService() {
         val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString() ?: ""
         if (title.isEmpty() && text.isEmpty()) return
+        // housekeeping notices apps post while syncing ("Updating messages…", "Checking for new messages"): not worth mirroring
+        if (Regex("^(updating|checking for new|syncing|refreshing|downloading new)\\b", RegexOption.IGNORE_CASE).containsMatchIn(title.trim()) ||
+            Regex("^(updating|checking for new|syncing)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text.trim())) return
         // skip duplicates (apps re-post the same notification when updating progress etc.)
         val sig = "${sbn.key}|$title|$text"
         val now = System.currentTimeMillis()
@@ -83,9 +119,8 @@ class NotifService : NotificationListenerService() {
         recent[sig] = now
         if (recent.size > 200) recent.remove(recent.keys.first())
 
-        val pm = packageManager
-        val label = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString() }
-            .getOrDefault(sbn.packageName)
+        val info = describe(sbn)
+        val label = info.label
         val data = JSONObject().put("id", sbn.id).put("key", sbn.key).put("pkg", sbn.packageName)
             .put("app", label).put("title", title).put("text", text)
             .put("sub", ex.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: "")
@@ -94,7 +129,7 @@ class NotifService : NotificationListenerService() {
         synchronized(keep) { keep[sbn.key] = n }
         data.put("canReply", replyAction(n) != null)
         if (sentEpoch != Link.epoch) { sentEpoch = Link.epoch; sentIcons.clear() }
-        if (sentIcons.add(sbn.packageName)) appIcon(sbn.packageName)?.let { data.put("icon", it) }
+        if (sentIcons.add(sbn.packageName)) info.iconB64?.let { data.put("icon", it) }
         Link.send("notification", data)
     }
 
