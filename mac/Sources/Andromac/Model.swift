@@ -1,0 +1,408 @@
+import Foundation
+import AppKit
+import ServiceManagement
+import ApplicationServices
+import CoreGraphics
+import UserNotifications
+import IOKit.pwr_mgt
+
+struct ActivityEvent: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    let detail: String
+    let date = Date()
+}
+
+struct ClipItem: Identifiable {
+    let id = UUID()
+    let text: String
+    let fromPhone: Bool
+    let date = Date()
+}
+
+final class AppModel: ObservableObject {
+    @Published var clipboardHistory: [ClipItem] = []
+    /// Stops the Mac from going to sleep on idle, so the phone (and `ssh m5`) can always reach it. The display can still sleep.
+    @Published var keepAwake: Bool { didSet { UserDefaults.standard.set(keepAwake, forKey: "keepAwake"); applyKeepAwake() } }
+    private var assertionID: IOPMAssertionID = 0
+    private func applyKeepAwake() {
+        if keepAwake, assertionID == 0 {
+            IOPMAssertionCreateWithName("PreventUserIdleSystemSleep" as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                        "Andromac: keep this Mac reachable" as CFString, &assertionID)
+        } else if !keepAwake, assertionID != 0 { IOPMAssertionRelease(assertionID); assertionID = 0 }
+    }
+    /// Lets the phone's terminal reach this Mac's SSH server through Andromac's private network (only your own devices).
+    @Published var terminalAccess: Bool { didSet { UserDefaults.standard.set(terminalAccess, forKey: "termOn"); tunnel.forwardSSH = terminalAccess; if connectionEnabled { tunnel.stop(); tunnel.start(port: port) } } }
+    @Published var syncClipboard: Bool { didSet { UserDefaults.standard.set(syncClipboard, forKey: "syncClip") } }
+    /// Master switch: when off the private network helper is stopped and nothing connects.
+    @Published var connectionEnabled: Bool { didSet { UserDefaults.standard.set(connectionEnabled, forKey: "connOn"); applyConnection() } }
+
+    // connection
+    @Published var connected = false
+    @Published var phoneName: String?
+    @Published var battery: Int?
+    @Published var charging = false
+    @Published var events: [ActivityEvent] = []
+    @Published var hasFullDiskAccess = true
+    @Published var justCopiedLink = false
+    @Published var showPair = false
+    @Published var notifAccess = true
+    @Published var screenAccess = true
+    @Published var axAccess = true
+    // embedded Tailscale
+    @Published var tunnelState = "starting"      // starting | login | running | error
+    @Published var tunnelLoginURL: URL?
+    @Published var tunnelIP: String?
+    @Published var tunnelDetail = ""
+    @Published var tunnelAccount = ""
+    @Published var tunnelHost = ""
+    // screen sharing
+    @Published var macSharing = false
+    @Published var screenMessage: String?
+    private var phoneWindow: PhoneScreenWindow?
+    private var share: MacScreenShare?
+    private let tunnel = TunnelManager()
+    private var iconPNG: [String: Data] = [:]
+    private var phoneTailIP: String?
+    private var cursorTimer: Timer?
+    private var lastCursor = CGPoint(x: -1, y: -1)
+    /// Mac-side bridge: 127.0.0.1:2223 → the phone's Termux SSH (port 8022) through the private network.
+    func updatePhoneSSH() { if terminalAccess, let ip = phoneTailIP { tunnel.send("proxy 2223 \(ip):8022") } }
+    private var pendingOpen: (key: String, title: String)?
+
+    // settings
+    @Published var mirrorMacNotifications: Bool { didSet { UserDefaults.standard.set(mirrorMacNotifications, forKey: "mirrorMac") } }
+    @Published var autoCopyOTP: Bool { didSet { UserDefaults.standard.set(autoCopyOTP, forKey: "autoOTP") } }
+    @Published var launchAtLogin: Bool {
+        didSet {
+            do { launchAtLogin ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
+            catch { log("login item: \(error.localizedDescription)") }
+        }
+    }
+    @Published var hasConnectedBefore: Bool { didSet { UserDefaults.standard.set(hasConnectedBefore, forKey: "paired") } }
+
+    let port: UInt16 = 8765
+    let secret = loadOrCreateSecret()
+    let server: Server
+    private var macNotifs: MacNotifications!
+    private var lastClip = NSPasteboard.general.changeCount
+    @Published private(set) var pairingURL = ""
+
+    init() {
+        let d = UserDefaults.standard
+        d.register(defaults: ["mirrorMac": true, "autoOTP": true, "syncClip": true, "termOn": true, "connOn": true, "firstRun": true])
+        let first = d.bool(forKey: "firstRun")
+        syncClipboard = d.bool(forKey: "syncClip")
+        terminalAccess = d.bool(forKey: "termOn")
+        keepAwake = d.bool(forKey: "keepAwake")
+        connectionEnabled = d.bool(forKey: "connOn")
+        mirrorMacNotifications = d.bool(forKey: "mirrorMac")
+        autoCopyOTP = d.bool(forKey: "autoOTP")
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        hasConnectedBefore = d.bool(forKey: "paired")
+        server = Server(channel: Channel(secret: secret), port: port)
+
+        server.onVideo = { [weak self] _, au in
+            guard let self, let w = self.phoneWindow else { return }
+            if !w.decoder.decode(au) { self.server.send(type: "keyframe", data: [:]) }
+        }
+        server.onMessage = { [weak self] t, data in DispatchQueue.main.async { self?.handle(t, data) } }
+        server.onConnect = { [weak self] in DispatchQueue.main.async { self?.connected = true; self?.hasConnectedBefore = true } }
+        server.onDisconnect = { [weak self] in DispatchQueue.main.async { self?.connected = false; self?.battery = nil } }
+        do { try server.start() } catch { log("server failed: \(error)") }
+        tunnel.onState = { [weak self] state, detail in self?.tunnelEvent(state, detail) }
+        tunnel.forwardSSH = terminalAccess
+        applyKeepAwake()
+        if connectionEnabled { tunnel.start(port: port) } else { tunnelState = "off" }
+        if first { d.set(false, forKey: "firstRun"); if Bundle.main.bundlePath.hasSuffix(".app") { launchAtLogin = true } }
+
+        macNotifs = MacNotifications(server: server)
+        macNotifs.enabled = { [weak self] in self?.mirrorMacNotifications ?? true }
+        macNotifs.onAccess = { [weak self] ok in self?.hasFullDiskAccess = ok }
+        macNotifs.start()
+
+        Notifier.shared.onReply = { [weak self] key, text in
+            self?.server.send(type: "notification_reply", data: ["key": key, "text": text])
+            self?.record("arrowshape.turn.up.left.fill", "Replied from Mac", text)
+        }
+        Notifier.shared.onOpen = { [weak self] key, title in self?.openOnPhone(key: key, title: title) }
+        Notifier.setup()
+        refreshPermissions()
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.refreshPermissions() }
+        Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in self?.watchClipboard() }
+    }
+
+    // MARK: messages from phone
+    private func handle(_ type: String, _ data: [String: Any]) {
+        switch type {
+        case "hello":
+            phoneName = data["device"] as? String
+            if let ip = data["tip"] as? String, !ip.isEmpty { phoneTailIP = ip; updatePhoneSSH() }
+        case "battery":
+            battery = data["level"] as? Int
+            charging = (data["charging"] as? Bool) ?? ((data["charging"] as? Int) == 1)
+        case "notification":
+            let app = data["app"] as? String ?? "Phone"
+            let title = data["title"] as? String ?? ""
+            let text = data["text"] as? String ?? ""
+            let pkg = data["pkg"] as? String ?? app
+            if let b64 = data["icon"] as? String, let png = Data(base64Encoded: b64) { iconPNG[pkg] = png }
+            Notifier.shared.post(title: title.isEmpty ? app : title, body: text, subtitle: "\(app) · from phone",
+                                 key: data["key"] as? String, iconKey: pkg, iconPNG: iconPNG[pkg], canReply: (data["canReply"] as? Bool) ?? false)
+            record("bell.fill", "\(app)\(title.isEmpty ? "" : " · \(title)")", text)
+            if let otp = data["otp"] as? String { gotOTP(otp, from: app) }
+        case "sms":
+            let from = data["from"] as? String ?? "SMS"
+            let body = data["body"] as? String ?? ""
+            Notifier.post(title: "SMS · \(from)", body: body)
+            record("message.fill", "SMS · \(from)", body)
+            if let otp = data["otp"] as? String { gotOTP(otp, from: from) }
+        case "clipboard":
+            if syncClipboard, let text = data["text"] as? String, !text.isEmpty {
+                setClipboard(text)
+                addClip(text, fromPhone: true)
+            }
+        case "screen_started":
+            if phoneWindow == nil {
+                phoneWindow = PhoneScreenWindow(send: { [weak self] d in self?.server.send(type: "input", data: d) },
+                                                onClipboard: { [weak self] in self?.sendClipboardNow() },
+                                                onStop: { [weak self] in self?.stopPhoneScreen() },
+                                                onClose: { [weak self] in self?.closePhoneScreen(notify: true) })
+                NotificationCenter.default.addObserver(forName: .phonePaste, object: nil, queue: .main) { [weak self] _ in
+                    self?.sendClipboardNow()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self?.server.send(type: "input", data: ["k": "paste"]) }
+                }
+            }
+            phoneWindow?.setSize(data["w"] as? Int ?? 0, data["h"] as? Int ?? 0)
+            phoneWindow?.show()
+            server.send(type: "keyframe", data: [:])
+            if let p = pendingOpen { pendingOpen = nil; server.send(type: "notification_open", data: ["key": p.key, "title": p.title]) }
+            record("rectangle.on.rectangle", "Viewing phone screen", "")
+        case "screen_stopped":
+            closePhoneScreen(notify: false)
+            if (data["reason"] as? String) == "denied" { screenMessage = "Phone declined screen sharing" }
+        case "control_off":
+            screenMessage = "Control is off. On the phone: Settings → Accessibility → Andromac → On."
+            phoneWindow?.showControlOff()
+        case "mac_open_app":
+            if let id = data["bundle"] as? String, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+                let cfg = NSWorkspace.OpenConfiguration(); cfg.activates = true
+                NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+            }
+        case "mac_screen_request": askToShareMac()
+        case "mac_screen_stop": stopMacShare(notify: false)
+        case "mac_keyframe": share?.requestKeyframe()
+        case "input":
+            if (data["target"] as? String) == "mac", macSharing { InputInjector.handle(data) }
+        case "ping": server.send(type: "pong", data: [:])
+        default: break
+        }
+    }
+
+    private func gotOTP(_ otp: String, from: String) {
+        guard autoCopyOTP else { return }
+        setClipboard(otp)
+        Notifier.post(title: "Code copied: \(otp)", body: "From \(from)")
+        record("key.fill", "Code copied: \(otp)", "From \(from)")
+    }
+
+    private func record(_ icon: String, _ title: String, _ detail: String) {
+        events.insert(ActivityEvent(icon: icon, title: title, detail: detail), at: 0)
+        if events.count > 40 { events.removeLast(events.count - 40) }
+    }
+
+    // MARK: clipboard
+    private func setClipboard(_ text: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents(); pb.setString(text, forType: .string)
+        lastClip = pb.changeCount
+    }
+
+    private func watchClipboard() {
+        let pb = NSPasteboard.general
+        guard pb.changeCount != lastClip else { return }
+        lastClip = pb.changeCount
+        let types = Set((pb.types ?? []).map { $0.rawValue })
+        // password managers mark secrets as concealed/transient: never record or sync those
+        if !types.isDisjoint(with: ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "com.agilebits.onepassword"]) { return }
+        guard let t = pb.string(forType: .string), !t.isEmpty, t.utf8.count < 100_000 else { return }
+        if clipboardHistory.first?.text == t { return }
+        addClip(t, fromPhone: false)
+        if connected && syncClipboard { sendClip(t) }
+    }
+
+    private func sendClip(_ t: String) {
+        server.send(type: "clipboard", data: ["text": t, "ts": Int(Date().timeIntervalSince1970 * 1000)])
+    }
+
+    private func addClip(_ text: String, fromPhone: Bool) {
+        clipboardHistory.removeAll { $0.text == text }
+        clipboardHistory.insert(ClipItem(text: text, fromPhone: fromPhone), at: 0)
+        if clipboardHistory.count > 60 { clipboardHistory.removeLast(clipboardHistory.count - 60) }
+    }
+
+    /// Put a history item back on this Mac's clipboard and on the phone's.
+    func recopy(_ item: ClipItem) {
+        setClipboard(item.text)
+        addClip(item.text, fromPhone: item.fromPhone)
+        if connected && syncClipboard { sendClip(item.text) }
+    }
+
+    func clearClipboardHistory() { clipboardHistory.removeAll() }
+
+    private func applyConnection() {
+        if connectionEnabled {
+            if tunnelState == "off" || tunnelState == "error" { tunnelState = "starting"; tunnel.start(port: port) }
+        } else {
+            tunnel.stop(); server.disconnect()
+            tunnelState = "off"; tunnelIP = nil; pairingURL = ""; connected = false; battery = nil
+        }
+    }
+
+    func sendClipboardNow() {
+        guard let t = NSPasteboard.general.string(forType: .string) else { return }
+        sendClip(t)
+    }
+
+    // MARK: tunnel
+    private func makePairingURL(_ host: String) -> String { "andromac://\(host):\(port)/\(secret.base64URL())" }
+
+    private func tunnelEvent(_ state: String, _ detail: String) {
+        switch state {
+        case "account":
+            let p = detail.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            tunnelAccount = p.first ?? ""; tunnelHost = p.count > 1 ? p[1] : ""
+        case "login": tunnelState = "login"; tunnelLoginURL = URL(string: detail); tunnelAccount = ""
+        case "running": tunnelState = "running"; tunnelLoginURL = nil; tunnelIP = detail; pairingURL = makePairingURL(detail); updatePhoneSSH()
+            if tunnelIP != nil { refreshPermissions() }
+        case "error": tunnelState = "error"; tunnelDetail = detail
+        default: if tunnelState != "login" && tunnelState != "running" { tunnelState = "starting" }
+        }
+    }
+
+    func tunnelSignOut() { tunnelIP = nil; tunnel.send("logout") }
+
+    func openTunnelLogin() { if let u = tunnelLoginURL { NSWorkspace.shared.open(u) } }
+
+    // MARK: screen sharing
+    func requestPhoneScreen() { server.send(type: "screen_request", data: [:]); screenMessage = "Approve on the phone…" }
+
+    /// Clicked a phone notification on the Mac: show the phone and open that conversation there.
+    func openOnPhone(key: String, title: String) {
+        if phoneWindow != nil { phoneWindow?.show(); server.send(type: "notification_open", data: ["key": key, "title": title]) }
+        else { pendingOpen = (key, title); requestPhoneScreen() }
+    }
+
+    func stopPhoneScreen() { server.send(type: "screen_stop", data: [:]); closePhoneScreen(notify: true) }
+
+    private func closePhoneScreen(notify: Bool) {
+        phoneWindow?.close(); phoneWindow = nil; screenMessage = nil
+    }
+
+    private func askToShareMac() {
+        // Without the macOS Screen Recording permission nothing can be shared, so say so instead of asking a question we can't honour.
+        guard CGPreflightScreenCaptureAccess() else {
+            screenMessage = "Allow Screen Recording for Andromac first."
+            server.send(type: "mac_screen_denied", data: ["reason": "permission"])
+            Notifier.post(title: "Andromac needs Screen Recording", body: "Your phone asked to see this Mac. Open Andromac → Set up → Screen Recording.")
+            NSApp.activate(ignoringOtherApps: true)
+            PermissionGuide.show(.screen, model: self)
+            return
+        }
+        let a = NSAlert()
+        a.messageText = "Let your phone view and control this Mac?"
+        a.informativeText = "Your phone will see your screen and can move the mouse and type until you stop it. Only allow this if you just asked for it on your phone."
+        a.addButton(withTitle: "Allow"); a.addButton(withTitle: "Deny")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { server.send(type: "mac_screen_denied", data: [:]); return }
+        _ = InputInjector.trusted(prompt: true)       // asks for Accessibility if missing
+        let s = MacScreenShare(); share = s
+        server.onCongestion = { [weak s] in s?.congestion() }
+        s.onPacket = { [weak self] key, data in self?.server.sendVideo(keyframe: key, data) }
+        s.onStopped = { [weak self] in DispatchQueue.main.async { self?.stopMacShare(notify: true) } }
+        Task { @MainActor in
+            do {
+                try await s.start()
+                macSharing = true
+                cursorTimer?.invalidate()
+                cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+                    guard let self, self.macSharing, let scr = NSScreen.main else { return }
+                    let p = NSEvent.mouseLocation, f = scr.frame
+                    let q = CGPoint(x: (p.x - f.minX) / f.width, y: 1 - (p.y - f.minY) / f.height)
+                    if abs(q.x - self.lastCursor.x) > 0.002 || abs(q.y - self.lastCursor.y) > 0.002 {
+                        self.lastCursor = q; self.server.send(type: "cursor", data: ["x": Double(q.x), "y": Double(q.y)])
+                    }
+                }
+                server.send(type: "mac_screen_started", data: ["w": Int(s.size.width), "h": Int(s.size.height)])
+                record("display", "Phone is viewing this Mac", "")
+            } catch {
+                share = nil
+                screenMessage = "Could not start screen sharing: \(error.localizedDescription)"
+                server.send(type: "mac_screen_denied", data: ["reason": "permission"])
+                PermissionGuide.show(.screen, model: self)
+            }
+        }
+    }
+
+    func stopMacShare(notify: Bool) {
+        share?.stop(); share = nil; macSharing = false; cursorTimer?.invalidate(); cursorTimer = nil
+        if notify { server.send(type: "mac_screen_stopped", data: [:]) }
+    }
+
+    // MARK: actions
+    func copyPairingLink() {
+        setClipboard(pairingURL)
+        justCopiedLink = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.justCopiedLink = false }
+    }
+
+    func refreshPermissions() {
+        screenAccess = CGPreflightScreenCaptureAccess()
+        axAccess = AXIsProcessTrusted()
+        if Bundle.main.bundlePath.hasSuffix(".app") {
+            UNUserNotificationCenter.current().getNotificationSettings { st in
+                let ok = st.authorizationStatus == .authorized || st.authorizationStatus == .provisional
+                DispatchQueue.main.async { self.notifAccess = ok }
+            }
+        }
+    }
+
+    func openSettings(_ pane: String) {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
+    }
+
+    /// Shows Andromac.app in Finder so it can be dragged into (or picked with +) the Full Disk Access list.
+    func revealApp() { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
+
+    func openNotificationSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+    }
+
+    func restartApp() {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "sleep 1; open '\(Bundle.main.bundlePath)'"]
+        try? p.run(); tunnel.stop(); NSApp.terminate(nil)
+    }
+
+    func guide(_ kind: PermKind) { PermissionGuide.show(kind, model: self) }
+
+    func openFullDiskAccess() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+    }
+
+    static func tailscaleIP() -> String {
+        for path in ["/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale",
+                     "/Applications/Tailscale.app/Contents/MacOS/Tailscale"] where FileManager.default.isExecutableFile(atPath: path) {
+            let p = Process(), out = Pipe()
+            p.executableURL = URL(fileURLWithPath: path); p.arguments = ["ip", "-4"]
+            p.standardOutput = out; p.standardError = Pipe()
+            if (try? p.run()) != nil {
+                p.waitUntilExit()
+                let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                if let ip = s.split(separator: "\n").first { return String(ip) }
+            }
+        }
+        return "100.x.x.x"
+    }
+}

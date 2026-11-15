@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101010"/><stop offset="1" stop-color="#000000"/></linearGradient>
+    <linearGradient id="ring" gradientUnits="userSpaceOnUse" x1="-330" y1="0" x2="330" y2="0"><stop offset="0.15" stop-color="#F1F4FA"/><stop offset="0.85" stop-color="#87D787"/></linearGradient>
+    <radialGradient id="glow"><stop offset="0" stop-color="#87D787" stop-opacity="0.55"/><stop offset="1" stop-color="#87D787" stop-opacity="0"/></radialGradient>
+    <radialGradient id="silver" cx="0.35" cy="0.3"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#B5BDCB"/></radialGradient>
+    <radialGradient id="green" cx="0.35" cy="0.3"><stop offset="0" stop-color="#7BF2B0"/><stop offset="1" stop-color="#22B56A"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="120" fill="url(#glow)"/>
+  <circle cx="512" cy="512" r="9" fill="#E8FFF2"/>
+  <g transform="translate(512 512) rotate(-28)">
+    <ellipse rx="330" ry="128" fill="none" stroke="url(#ring)" stroke-width="26"/>
+    <circle cx="-310.1" cy="-43.8" r="48" fill="url(#silver)"/>
+    <circle cx="310.1" cy="43.8" r="48" fill="url(#green)"/>
+  </g>
+</svg>

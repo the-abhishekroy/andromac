@@ -1,0 +1,22 @@
+# build output and caches
+.build/
+.gradle/
+build/
+**/build/
+dist/
+.venv-dmg/
+*.apk
+*.dmg
+*.aar
+*.tiff
+# local-only files
+local.properties
+.DS_Store
+# generated DMG art (re-created by mac/make-dmg.sh)
+mac/dmg/background.png
+mac/dmg/background@2x.png
+# never commit keys or secrets
+*.jks
+*.keystore
+*.pem
+*.p12
