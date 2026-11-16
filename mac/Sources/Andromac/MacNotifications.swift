@@ -19,7 +19,10 @@ final class MacNotifications {
         .appendingPathComponent("Library/Group Containers/group.com.apple.usernoted/db2")
     private let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("andromac-nc")
     /// Our own osascript notifications show up as Script Editor; skip them or we'd echo forever.
-    private let ignored: Set<String> = ["com.apple.ScriptEditor2", "app.andromac.mac"]
+    /// (Compared in lower case: macOS stores Script Editor as "com.apple.scripteditor2", which used to slip through and echo back to the phone.)
+    private let ignored: Set<String> = ["com.apple.scripteditor2", "com.apple.scripteditor.id.osascript", "app.andromac.mac"]
+    /// Same app, title and text within a few seconds: send once (Calendar and others post each alert twice).
+    private var recentlySent: [String: Date] = [:]
 
     init(server: Server) { self.server = server }
 
@@ -66,13 +69,19 @@ final class MacNotifications {
         while sqlite3_step(st) == SQLITE_ROW {
             lastId = max(lastId, sqlite3_column_int64(st, 0))
             let bundle = sqlite3_column_text(st, 1).map { String(cString: $0) } ?? ""
-            if ignored.contains(bundle) || !enabled() || isMuted(bundle) { continue }
+            if ignored.contains(bundle.lowercased()) || bundle.lowercased().contains("scripteditor") || !enabled() || isMuted(bundle) { continue }
             guard let bytes = sqlite3_column_blob(st, 2) else { continue }
             let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(st, 2)))
             guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   let req = plist["req"] as? [String: Any] else { continue }
             let title = req["titl"] as? String ?? "", sub = req["subt"] as? String ?? "", body = req["body"] as? String ?? ""
             if title.isEmpty && body.isEmpty { continue }
+            if sub.hasSuffix("· Phone") { continue }              // a phone notification Andromac itself showed here: never send it back
+            let sig = "\(bundle)|\(title)|\(body)"
+            let now = Date()
+            recentlySent = recentlySent.filter { now.timeIntervalSince($0.value) < 20 }
+            if recentlySent[sig] != nil { continue }
+            recentlySent[sig] = now
             let app = Self.appName(bundle)
             var msg: [String: Any] = ["pkg": bundle, "app": app, "title": title, "text": body, "sub": sub,
                                       "ts": Int(Date().timeIntervalSince1970 * 1000), "source": "mac"]

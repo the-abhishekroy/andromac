@@ -40,7 +40,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func post(title: String, body: String, subtitle: String? = nil, key: String? = nil, iconKey: String? = nil, iconPNG: Data? = nil, canReply: Bool = false, appName: String? = nil) {
-        guard Self.isBundle else { return Self.osascript(title, body) }
+        guard Self.isBundle else { return }
         let c = UNMutableNotificationContent()
         c.title = title; c.body = body; c.sound = .default
         if let subtitle { c.subtitle = subtitle }
@@ -53,7 +53,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             } else { log("notification icon: no image for \(iconKey) (png \(iconPNG?.count ?? 0) bytes)") }
         }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)) { err in
-            if err != nil { Self.osascript(title, body) }
+            if err != nil {
+                // notifications not allowed: show Andromac's own banner instead of a script-made one (those show as "Script Editor" and get mirrored back)
+                DispatchQueue.main.async { BannerCenter.shared.show(BannerItem(title: title, subtitle: subtitle ?? "", body: body, icon: nil, key: key, canReply: canReply)) }
+            }
         }
     }
 
@@ -73,10 +76,4 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     // legacy: plain call used by SMS / OTP notices
     static func post(title: String, body: String) { shared.post(title: title, body: body) }
 
-    private static func osascript(_ t: String, _ b: String) {
-        func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", "display notification \(q(b)) with title \(q(t))"]
-        try? p.run()
-    }
 }

@@ -12,7 +12,17 @@ object MacNotify {
 
     private val macIcons = HashMap<String, android.graphics.Bitmap>()
 
+    private val recent = HashMap<String, Long>()
+
     fun show(ctx: Context, d: JSONObject) {
+        // the same Mac notification twice within a few seconds is shown once
+        val sig = "${d.optString("pkg")}|${d.optString("title")}|${d.optString("text")}"
+        val now = System.currentTimeMillis()
+        synchronized(recent) {
+            recent.entries.removeAll { now - it.value > 20_000 }
+            if (recent.containsKey(sig)) return
+            recent[sig] = now
+        }
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("mac", "Mac", NotificationManager.IMPORTANCE_HIGH))
         val title = d.optString("title"); val text = d.optString("text"); val app = d.optString("app", "Mac")
