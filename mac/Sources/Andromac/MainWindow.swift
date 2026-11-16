@@ -859,7 +859,7 @@ struct SettingsPage: View {
             Divider().overlay(Brand.border)
             ToggleRow(symbol: "key.fill", title: "Copy one-time codes automatically", detail: "Codes from texts and notifications are copied for you.", isOn: $m.autoCopyOTP)
             Divider().overlay(Brand.border)
-            ToggleRow(symbol: "sunrise.fill", title: "Open Andromac at login", detail: "Starts quietly in the menu bar.", isOn: $m.launchAtLogin)
+            ToggleRow(symbol: "sunrise.fill", title: "Connect at login", detail: "Only the background connection starts. No window, no menu bar icon until you open Andromac.", isOn: $m.launchAtLogin)
         }
         Card(title: "Notifications") {
             ToggleRow(symbol: "bell.badge", title: "Use macOS notifications (Notification Center)",

@@ -116,8 +116,8 @@ final class AppModel: ObservableObject {
     @Published var autoCopyOTP: Bool { didSet { UserDefaults.standard.set(autoCopyOTP, forKey: "autoOTP") } }
     @Published var launchAtLogin: Bool {
         didSet {
-            do { launchAtLogin ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
-            catch { log("login item: \(error.localizedDescription)") }
+            UserDefaults.standard.set(launchAtLogin, forKey: "loginService")
+            installLoginLauncher()
         }
     }
     @Published var hasConnectedBefore: Bool { didSet { UserDefaults.standard.set(hasConnectedBefore, forKey: "paired") } }
@@ -142,7 +142,8 @@ final class AppModel: ObservableObject {
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
-        launchAtLogin = SMAppService.mainApp.status == .enabled
+        launchAtLogin = (d.object(forKey: "loginService") as? Bool) ?? true
+        try? SMAppService.mainApp.unregister()        // older builds also registered a login item, which opened the whole app next to the background copy
         hasConnectedBefore = d.bool(forKey: "paired")
         server = Server(channel: Channel(secret: secret), port: port)
 
@@ -170,7 +171,7 @@ final class AppModel: ObservableObject {
         }
         BannerCenter.shared.onOpen = { [weak self] key, title in self?.openOnPhone(key: key, title: title) }
         if connectionEnabled { tunnel.start(port: port) } else { tunnelState = "off" }
-        if first { d.set(false, forKey: "firstRun"); if Bundle.main.bundlePath.hasSuffix(".app") { launchAtLogin = true } }
+        if first { d.set(false, forKey: "firstRun") }
 
         macNotifs = MacNotifications(server: server)
         widgetBridge = WidgetBridge(model: self)
@@ -702,6 +703,7 @@ final class AppModel: ObservableObject {
     private func installLoginLauncher() {
         guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/app.andromac.app.plist")
+        if !launchAtLogin { try? FileManager.default.removeItem(at: url); return }
         let plist: [String: Any] = [
             "Label": "app.andromac.app",
             "ProgramArguments": [Bundle.main.bundlePath + "/Contents/MacOS/Andromac"],
@@ -710,6 +712,7 @@ final class AppModel: ObservableObject {
             "KeepAlive": ["SuccessfulExit": false],          // a crash or force-quit brings it back; "Quit and disconnect" stays quit
             "ProcessType": "Interactive",
             "LimitLoadToSessionType": "Aqua",
+            "AbandonProcessGroup": true,                      // the helper that relaunches the normal app must outlive this quiet copy
         ]
         let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         guard (try? Data(contentsOf: url)) != data else { return }
@@ -717,6 +720,8 @@ final class AppModel: ObservableObject {
         try? data?.write(to: url)
         // loaded from the next login on (loading it now would start a second copy of the running app)
     }
+
+    func tunnelLeaveRunning() { tunnel.leaveRunning() }
 
     func restartApp() {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
