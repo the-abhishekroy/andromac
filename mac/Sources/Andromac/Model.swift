@@ -723,13 +723,23 @@ final class AppModel: ObservableObject {
     }
 
     /// Save the phone drive's login in the Keychain, so Finder (the sidebar "Phone" shortcut, reconnecting after sleep) never asks for it.
+    /// Done once per pairing: touching an existing Keychain item again would make macOS ask for the Mac password every time.
     func rememberPhoneLogin() {
         let pw = davPassword(secret: secret)
+        let stamp = String(pw.prefix(6)) + String(pw.suffix(6))
+        let previous = UserDefaults.standard.string(forKey: "phoneLoginStamp")
+        guard previous != stamp else { return }
+        UserDefaults.standard.set(stamp, forKey: "phoneLoginStamp")
         DispatchQueue.global().async {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-            p.arguments = ["add-internet-password", "-U", "-s", "Phone.local", "-P", "8790", "-r", "http", "-a", "andromac", "-l", "Andromac phone files", "-w", pw, "-T", "/System/Library/CoreServices/NetAuthAgent.app/Contents/MacOS/NetAuthSysAgent", "-T", "/System/Library/CoreServices/Finder.app"]
-            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try? p.run(); p.waitUntilExit()
+            func run(_ args: [String]) -> Int32 {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/security"); p.arguments = args
+                p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+                try? p.run(); p.waitUntilExit(); return p.terminationStatus
+            }
+            let exists = run(["find-internet-password", "-s", "Phone.local", "-a", "andromac"]) == 0
+            if exists && previous == nil { return }       // saved by an earlier version: leave it alone, changing it would prompt
+            if exists { _ = run(["delete-internet-password", "-s", "Phone.local", "-a", "andromac"]) }    // pairing changed: replace it
+            _ = run(["add-internet-password", "-s", "Phone.local", "-P", "8790", "-r", "http", "-a", "andromac", "-l", "Andromac phone files", "-w", pw])
         }
     }
 
