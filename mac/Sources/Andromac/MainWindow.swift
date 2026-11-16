@@ -866,6 +866,7 @@ struct SettingsPage: View {
                       detail: "On (default): real macOS notifications that stay in Notification Center, with the app's icon as a thumbnail, Reply, and click to open on your phone. macOS always shows Andromac's own icon on the left of these. Off: Andromac draws its own banners with the real app icon on the left, which are not kept in Notification Center.",
                       isOn: $m.nativeBanners)
         }
+        AppsCard()
         Card(title: "Duplicates") {
             ToggleRow(symbol: "bell.slash", title: "Skip apps already open on this Mac",
                       detail: "If WhatsApp, Telegram or Slack is running on this Mac it already notifies you with its own logo, so Andromac won't show a second copy of the phone's notification.",
@@ -882,11 +883,71 @@ struct SettingsPage: View {
             HStack(spacing: 14) {
                 OrbitLogo(size: 48)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Andromac 0.3").font(.body.weight(.semibold))
+                    Text("Andromac \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")").font(.body.weight(.semibold))
                     Text("Mac and Android, one ecosystem.").font(.callout).foregroundStyle(Brand.dim)
                 }
             }
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+
+// MARK: Choose which apps are shared
+
+/// Per-app switches: which phone apps appear on this Mac, and which Mac apps are sent to the phone.
+struct AppsCard: View {
+    @EnvironmentObject var m: AppModel
+    @State private var side = 0
+    @State private var query = ""
+    private func macName(_ b: String) -> String {
+        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: b), let bu = Bundle(url: u),
+           let n = (bu.infoDictionary?["CFBundleDisplayName"] ?? bu.infoDictionary?["CFBundleName"]) as? String { return n }
+        return b.split(separator: ".").last.map(String.init) ?? b
+    }
+    private func macIcon(_ b: String) -> NSImage {
+        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: b) { return NSWorkspace.shared.icon(forFile: u.path) }
+        return NSImage(systemSymbolName: "app", accessibilityDescription: nil) ?? NSImage()
+    }
+    private func row(_ icon: NSImage?, _ name: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: 12) {
+                Group {
+                    if let icon { Image(nsImage: icon).resizable() } else { Image(systemName: "app.fill").resizable().foregroundStyle(Brand.dim) }
+                }.frame(width: 26, height: 26).clipShape(RoundedRectangle(cornerRadius: 6))
+                Text(name).font(.body)
+                Spacer(minLength: 8)
+            }
+        }
+        .toggleStyle(SpringSwitchStyle(title: name))
+        .frame(minHeight: 40)
+    }
+    var body: some View {
+        Card(title: "Choose apps") {
+            Picker("", selection: $side) {
+                Text("Phone apps on this Mac").tag(0)
+                Text("Mac apps on the phone").tag(1)
+            }.pickerStyle(.segmented).labelsHidden()
+            Text(side == 0 ? "Turn off an app to stop its phone notifications from showing here. Icons fill in once an app has sent a notification."
+                           : "Turn off an app to stop its Mac notifications from going to your phone.")
+                .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
+            TextField("Search apps", text: $query).textFieldStyle(.roundedBorder)
+            let q = query.lowercased()
+            if side == 0 {
+                let apps = m.seenPhoneApps.sorted { $0.value.lowercased() < $1.value.lowercased() }.filter { q.isEmpty || $0.value.lowercased().contains(q) }
+                if apps.isEmpty { Text("No phone apps yet. They appear here once the phone connects.").font(.callout).foregroundStyle(Brand.dim) }
+                ForEach(apps, id: \.key) { pkg, name in
+                    row(m.phoneAppIcon(pkg), name, isOn: Binding(get: { !m.mutedPhoneApps.contains(pkg) },
+                        set: { on in if on { m.mutedPhoneApps.remove(pkg) } else { m.mutedPhoneApps.insert(pkg) } }))
+                }
+            } else {
+                let apps = m.macAppChoices.map { ($0, macName($0)) }.sorted { $0.1.lowercased() < $1.1.lowercased() }.filter { q.isEmpty || $0.1.lowercased().contains(q) }
+                if apps.isEmpty { Text(m.hasFullDiskAccess ? "No Mac apps have sent notifications yet." : "Allow Full Disk Access to list your Mac's apps.").font(.callout).foregroundStyle(Brand.dim) }
+                ForEach(apps, id: \.0) { bundle, name in
+                    row(macIcon(bundle), name, isOn: Binding(get: { !m.mutedMacApps.contains(bundle) },
+                        set: { on in if on { m.mutedMacApps.remove(bundle) } else { m.mutedMacApps.insert(bundle) } }))
+                }
+            }
         }
     }
 }

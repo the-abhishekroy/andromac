@@ -10,6 +10,10 @@ final class MacNotifications {
     private var lastId: Int64 = -1
     private var accessOK: Bool?
     var enabled: () -> Bool = { true }
+    /// Apps the user excluded from sharing.
+    var isMuted: (String) -> Bool = { _ in false }
+    /// Every app that has posted a notification on this Mac, for the "Choose apps" list.
+    var onApps: (([String]) -> Void)?
     var onAccess: ((Bool) -> Void)?
     private let src = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Group Containers/group.com.apple.usernoted/db2")
@@ -39,6 +43,14 @@ final class MacNotifications {
         guard sqlite3_open_v2(tmp.appendingPathComponent("db").path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return }
         defer { sqlite3_close(db) }
         setAccess(true)
+        var ap: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT identifier FROM app", -1, &ap, nil) == SQLITE_OK {
+            var ids: [String] = []
+            while sqlite3_step(ap) == SQLITE_ROW { if let c = sqlite3_column_text(ap, 0) { let s = String(cString: c); if !ignored.contains(s), !s.hasPrefix("_") { ids.append(s) } } }
+            sqlite3_finalize(ap)
+            let sorted = ids.sorted()
+            DispatchQueue.main.async { self.onApps?(sorted) }
+        }
 
         if lastId < 0 {   // first run: start from "now", don't replay history
             var st: OpaquePointer?
@@ -54,7 +66,7 @@ final class MacNotifications {
         while sqlite3_step(st) == SQLITE_ROW {
             lastId = max(lastId, sqlite3_column_int64(st, 0))
             let bundle = sqlite3_column_text(st, 1).map { String(cString: $0) } ?? ""
-            if ignored.contains(bundle) || !enabled() { continue }
+            if ignored.contains(bundle) || !enabled() || isMuted(bundle) { continue }
             guard let bytes = sqlite3_column_blob(st, 2) else { continue }
             let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(st, 2)))
             guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],

@@ -14,6 +14,7 @@ import android.os.Looper
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
@@ -114,7 +115,7 @@ object Link {
                 epoch++
                 pushState(State(Phase.CONNECTED, state.macName))
                 if (Settings.syncClipboard) send("clip_sync", JSONObject().put("items", ClipHistory.export()))
-                send("hello", JSONObject().put("device", android.os.Build.MODEL).put("version", 1).put("tip", Net.ip ?: "").put("files", filesState()))
+                send("hello", JSONObject().put("device", android.os.Build.MODEL).put("version", 1).put("tip", Net.ip ?: "").put("files", filesState()).put("apps", launchableApps()))
                 applyFiles(app)
                 sendBattery()
             }
@@ -122,6 +123,19 @@ object Link {
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) = retry(ws, t.message)
             override fun onClosed(ws: WebSocket, code: Int, reason: String) = retry(ws, "closed")
         })
+    }
+
+    /** Installed apps as [package, name] pairs, so the Mac can offer a "Choose apps" list before any notification arrives. */
+    private fun launchableApps(): JSONArray {
+        val arr = JSONArray()
+        runCatching {
+            val pm = app.packageManager
+            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                .distinctBy { it.first }.filter { it.first != app.packageName }
+                .forEach { arr.put(JSONArray().put(it.first).put(it.second)) }
+        }
+        return arr
     }
 
     private fun retry(ws: WebSocket, why: String?) {
