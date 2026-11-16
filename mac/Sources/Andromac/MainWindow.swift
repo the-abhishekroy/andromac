@@ -861,11 +861,6 @@ struct SettingsPage: View {
             Divider().overlay(Brand.border)
             ToggleRow(symbol: "sunrise.fill", title: "Connect at login", detail: "Only the background connection starts. No window, no menu bar icon until you open Andromac.", isOn: $m.launchAtLogin)
         }
-        Card(title: "Notifications") {
-            ToggleRow(symbol: "bell.badge", title: "Use macOS notifications (Notification Center)",
-                      detail: "On (default): real macOS notifications that stay in Notification Center, with the app's icon as a thumbnail, Reply, and click to open on your phone. macOS always shows Andromac's own icon on the left of these. Off: Andromac draws its own banners with the real app icon on the left, which are not kept in Notification Center.",
-                      isOn: $m.nativeBanners)
-        }
         AppsCard()
         Card(title: "Duplicates") {
             ToggleRow(symbol: "bell.slash", title: "Skip apps already open on this Mac",

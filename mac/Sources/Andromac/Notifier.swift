@@ -53,10 +53,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             } else { log("notification icon: no image for \(iconKey) (png \(iconPNG?.count ?? 0) bytes)") }
         }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)) { err in
-            if err != nil {
-                // notifications not allowed: show Andromac's own banner instead of a script-made one (those show as "Script Editor" and get mirrored back)
-                DispatchQueue.main.async { BannerCenter.shared.show(BannerItem(title: title, subtitle: subtitle ?? "", body: body, icon: nil, key: key, canReply: canReply)) }
-            }
+            if let err { log("notification not shown: \(err.localizedDescription)") }
         }
     }
 
