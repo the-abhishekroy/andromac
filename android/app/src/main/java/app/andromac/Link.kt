@@ -126,6 +126,7 @@ object Link {
 
     private fun retry(ws: WebSocket, why: String?) {
         if (ws !== socket) return
+        android.util.Log.w("AndromacLink", "connection ended: $why")
         socket = null
         if (!running) return
         pushState(State(Phase.OFFLINE, state.macName, "Retrying in ${backoff / 1000}s"))

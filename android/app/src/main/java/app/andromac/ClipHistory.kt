@@ -145,9 +145,10 @@ object ClipHistory {
     fun export(): JSONArray {
         val arr = JSONArray()
         var images = 0
+        var budget = 6_000_000          // keep the sync message small so it can never choke the link
         items.take(MAX_ITEMS).forEach {
             val o = JSONObject().put("s", if (it.fromMac) "mac" else "phone").put("ts", it.time)
-            if (it.image != null) { if (++images > 10) return@forEach; o.put("img", Base64.encodeToString(it.image, Base64.NO_WRAP)).put("mime", it.mime) }
+            if (it.image != null) { if (++images > 10 || it.image.size > budget) return@forEach; budget -= it.image.size; o.put("img", Base64.encodeToString(it.image, Base64.NO_WRAP)).put("mime", it.mime) }
             else if (it.text.length < 20_000) o.put("t", it.text) else return@forEach
             arr.put(o)
         }

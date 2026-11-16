@@ -29,6 +29,7 @@ final class Server {
     func start() throws {
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = true
+        ws.maximumMessageSize = 64 * 1024 * 1024     // the clipboard history sync can carry several images; the default limit would drop the link
         let tcp = NWProtocolTCP.Options(); tcp.noDelay = true       // no Nagle delay: input and video are latency-sensitive
         let params = NWParameters(tls: nil, tcp: tcp)
         params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
@@ -48,9 +49,13 @@ final class Server {
             guard let self, let conn else { return }
             switch state {
             case .ready:
+                log("connection ready")
                 self.receive(conn)
                 self.queue.asyncAfter(deadline: .now() + 10) { if self.current !== conn, conn.state == .ready { log("unauthenticated connection timed out"); conn.cancel() } }
-            case .failed, .cancelled:
+            case .failed(let e): log("connection failed: \(e)")
+                if self.current === conn { self.current = nil; log("phone disconnected"); self.onDisconnect?() }
+            case .cancelled:
+                log("connection closed")
                 if self.current === conn { self.current = nil; log("phone disconnected"); self.onDisconnect?() }
             default: break
             }
@@ -132,6 +137,12 @@ final class Server {
 
 func log(_ s: String) {
     let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-    print("[\(f.string(from: Date()))] \(s)")
-    fflush(stdout)
+    let line = "[\(f.string(from: Date()))] \(s)"
+    print(line); fflush(stdout)
+    // A small rolling log (kept under ~200 KB) so problems can be diagnosed afterwards. Never contains keys or message text.
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".andromac/app.log")
+    if let sz = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int, sz > 200_000 { try? FileManager.default.removeItem(at: url) }
+    if let d = (line + "\n").data(using: .utf8) {
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(d); try? h.close() } else { try? d.write(to: url) }
+    }
 }
