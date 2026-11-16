@@ -494,7 +494,7 @@ final class AppModel: ObservableObject {
         phoneFilesEnabled = (f["enabled"] as? Bool) ?? false
         phoneFilesWritable = (f["write"] as? Bool) ?? false
         phoneFilesNeedsPermission = (f["needsPermission"] as? Bool) ?? false
-        if !phoneFilesEnabled { phoneFilesMounted = false }
+        if !phoneFilesEnabled { phoneFilesMounted = false } else { rememberPhoneLogin() }      // so Finder never has to ask for the password
     }
 
     /// Open the phone's storage in Finder as the drive "Phone".
@@ -506,6 +506,7 @@ final class AppModel: ObservableObject {
                                                                     : "On the phone: Settings, Files on your Mac, turn on Share this phone's files." }
             return
         }
+        rememberPhoneLogin()
         guard !mountingPhone, !phoneFilesMounted else { if open, phoneFilesMounted { NSWorkspace.shared.open(URL(fileURLWithPath: "/Volumes/Phone")) }; return }
         mountingPhone = true
         tunnel.send("proxy 8790 \(ip):8790")              // Mac 127.0.0.1:8790 -> phone file server, through the private network
@@ -719,6 +720,17 @@ final class AppModel: ObservableObject {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data?.write(to: url)
         // loaded from the next login on (loading it now would start a second copy of the running app)
+    }
+
+    /// Save the phone drive's login in the Keychain, so Finder (the sidebar "Phone" shortcut, reconnecting after sleep) never asks for it.
+    func rememberPhoneLogin() {
+        let pw = davPassword(secret: secret)
+        DispatchQueue.global().async {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+            p.arguments = ["add-internet-password", "-U", "-s", "Phone.local", "-P", "8790", "-r", "http", "-a", "andromac", "-l", "Andromac phone files", "-w", pw, "-T", "/System/Library/CoreServices/NetAuthAgent.app/Contents/MacOS/NetAuthSysAgent", "-T", "/System/Library/CoreServices/Finder.app"]
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+            try? p.run(); p.waitUntilExit()
+        }
     }
 
     func tunnelLeaveRunning() { tunnel.leaveRunning() }
