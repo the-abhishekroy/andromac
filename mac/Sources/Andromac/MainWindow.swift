@@ -895,10 +895,9 @@ struct SettingsPage: View {
 
 // MARK: Choose which apps are shared
 
-/// Per-app switches: which phone apps appear on this Mac, and which Mac apps are sent to the phone.
+/// Per-app switches: which of this Mac's apps send notifications to the phone.
 struct AppsCard: View {
     @EnvironmentObject var m: AppModel
-    @State private var side = 0
     @State private var query = ""
     private func macName(_ b: String) -> String {
         if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: b), let bu = Bundle(url: u),
@@ -924,29 +923,15 @@ struct AppsCard: View {
     }
     var body: some View {
         Card(title: "Choose apps") {
-            Picker("", selection: $side) {
-                Text("Phone apps on this Mac").tag(0)
-                Text("Mac apps on the phone").tag(1)
-            }.pickerStyle(.segmented).labelsHidden()
-            Text(side == 0 ? "Turn off an app to stop its phone notifications from showing here. Icons fill in once an app has sent a notification."
-                           : "Turn off an app to stop its Mac notifications from going to your phone.")
+            Text("Turn off an app to stop its notifications on this Mac from going to your phone. Which phone apps send notifications is chosen in the Andromac app on your phone.")
                 .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             TextField("Search apps", text: $query).textFieldStyle(.roundedBorder)
             let q = query.lowercased()
-            if side == 0 {
-                let apps = m.seenPhoneApps.sorted { $0.value.lowercased() < $1.value.lowercased() }.filter { q.isEmpty || $0.value.lowercased().contains(q) }
-                if apps.isEmpty { Text("No phone apps yet. They appear here once the phone connects.").font(.callout).foregroundStyle(Brand.dim) }
-                ForEach(apps, id: \.key) { pkg, name in
-                    row(m.phoneAppIcon(pkg), name, isOn: Binding(get: { !m.mutedPhoneApps.contains(pkg) },
-                        set: { on in if on { m.mutedPhoneApps.remove(pkg) } else { m.mutedPhoneApps.insert(pkg) } }))
-                }
-            } else {
-                let apps = m.macAppChoices.map { ($0, macName($0)) }.sorted { $0.1.lowercased() < $1.1.lowercased() }.filter { q.isEmpty || $0.1.lowercased().contains(q) }
-                if apps.isEmpty { Text(m.hasFullDiskAccess ? "No Mac apps have sent notifications yet." : "Allow Full Disk Access to list your Mac's apps.").font(.callout).foregroundStyle(Brand.dim) }
-                ForEach(apps, id: \.0) { bundle, name in
-                    row(macIcon(bundle), name, isOn: Binding(get: { !m.mutedMacApps.contains(bundle) },
-                        set: { on in if on { m.mutedMacApps.remove(bundle) } else { m.mutedMacApps.insert(bundle) } }))
-                }
+            let apps = m.macAppChoices.map { ($0, macName($0)) }.sorted { $0.1.lowercased() < $1.1.lowercased() }.filter { q.isEmpty || $0.1.lowercased().contains(q) }
+            if apps.isEmpty { Text(m.hasFullDiskAccess ? "No Mac apps have sent notifications yet." : "Allow Full Disk Access to list your Mac's apps.").font(.callout).foregroundStyle(Brand.dim) }
+            ForEach(apps, id: \.0) { bundle, name in
+                row(macIcon(bundle), name, isOn: Binding(get: { !m.mutedMacApps.contains(bundle) },
+                    set: { on in if on { m.mutedMacApps.remove(bundle) } else { m.mutedMacApps.insert(bundle) } }))
             }
         }
     }

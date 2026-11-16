@@ -96,14 +96,10 @@ final class AppModel: ObservableObject {
     private var share: MacScreenShare?
     private let tunnel = TunnelManager()
     private var iconPNG: [String: Data] = [:]
-    /// Apps the user chose not to share: phone apps are not shown on this Mac, Mac apps are not sent to the phone.
-    @Published var mutedPhoneApps: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "mutedPhoneApps") ?? []) { didSet { UserDefaults.standard.set(Array(mutedPhoneApps), forKey: "mutedPhoneApps") } }
+    /// Mac apps the user chose not to send to the phone. (Which phone apps send notifications is chosen on the phone.)
     @Published var mutedMacApps: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "mutedMacApps") ?? []) { didSet { UserDefaults.standard.set(Array(mutedMacApps), forKey: "mutedMacApps") } }
-    /// Phone apps seen so far (package → name), so they can be listed and muted.
-    @Published var seenPhoneApps: [String: String] = (UserDefaults.standard.dictionary(forKey: "seenPhoneApps") as? [String: String]) ?? [:] { didSet { UserDefaults.standard.set(seenPhoneApps, forKey: "seenPhoneApps") } }
     /// Mac apps that have posted notifications (bundle id), filled from Notification Center.
     @Published var macAppChoices: [String] = []
-    func phoneAppIcon(_ pkg: String) -> NSImage? { iconPNG[pkg].flatMap { NSImage(data: $0) } }
     // phone files (WebDAV through the private network, mounted in Finder as "Phone")
     @Published var phoneFilesEnabled = false
     @Published var phoneFilesWritable = false
@@ -207,11 +203,6 @@ final class AppModel: ObservableObject {
             phoneName = data["device"] as? String
             if let ip = data["tip"] as? String, !ip.isEmpty { phoneTailIP = ip; updatePhoneSSH() }
             if let f = data["files"] as? [String: Any] { applyFilesState(f) }
-            if let list = data["apps"] as? [[String]] {            // every app on the phone, for the "Choose apps" list
-                var all = seenPhoneApps
-                for a in list where a.count == 2 { all[a[0]] = a[1] }
-                if all != seenPhoneApps { seenPhoneApps = all }
-            }
         case "files_state":
             applyFilesState(data)
         case "battery":
@@ -223,8 +214,6 @@ final class AppModel: ObservableObject {
             let text = data["text"] as? String ?? ""
             let pkg = data["pkg"] as? String ?? app
             if let b64 = data["icon"] as? String, let png = Data(base64Encoded: b64) { iconPNG[pkg] = png }
-            if data["source"] as? String != "mac", seenPhoneApps[pkg] != app { seenPhoneApps[pkg] = app }
-            if mutedPhoneApps.contains(pkg) { return }          // the user chose not to see this app's notifications on the Mac
             if let macApp = skipRunningApps ? runningMacApp(for: app, pkg: pkg) : nil {
                 // WhatsApp (etc.) is open on this Mac and shows its own notification with its own logo: don't show a second one.
                 record("bell.fill", "\(app)\(title.isEmpty ? "" : " · \(title)")", "Shown by \(macApp) on this Mac")

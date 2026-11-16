@@ -712,7 +712,7 @@ private fun AppsScreen(back: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            Body("Choose which apps' notifications are sent to your Mac.", Modifier.padding(horizontal = Sp.x4))
+            Body("Choose which of this phone's apps send notifications to your Mac. Turned-off apps stay on the phone only.", Modifier.padding(horizontal = Sp.x4))
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
                 label = { Text("Search apps") }, shape = RoundedCornerShape(Rad.s),
