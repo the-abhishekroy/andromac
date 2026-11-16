@@ -927,7 +927,7 @@ struct AppsCard: View {
                 .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             TextField("Search apps", text: $query).textFieldStyle(.roundedBorder)
             let q = query.lowercased()
-            let apps = m.macAppChoices.map { ($0, macName($0)) }.sorted { $0.1.lowercased() < $1.1.lowercased() }.filter { q.isEmpty || $0.1.lowercased().contains(q) }
+            let apps = m.macAppChoices.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }.map { ($0, macName($0)) }.sorted { $0.1.lowercased() < $1.1.lowercased() }.filter { q.isEmpty || $0.1.lowercased().contains(q) }
             if apps.isEmpty { Text(m.hasFullDiskAccess ? "No Mac apps have sent notifications yet." : "Allow Full Disk Access to list your Mac's apps.").font(.callout).foregroundStyle(Brand.dim) }
             ForEach(apps, id: \.0) { bundle, name in
                 row(macIcon(bundle), name, isOn: Binding(get: { !m.mutedMacApps.contains(bundle) },
