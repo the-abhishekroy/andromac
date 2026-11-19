@@ -116,6 +116,7 @@ final class AppModel: ObservableObject {
 
     // settings
     @Published var mirrorMacNotifications: Bool { didSet { UserDefaults.standard.set(mirrorMacNotifications, forKey: "mirrorMac") } }
+    @Published var autoAllowScreen: Bool { didSet { UserDefaults.standard.set(autoAllowScreen, forKey: "autoAllowScreen") } }
     @Published var autoCopyOTP: Bool { didSet { UserDefaults.standard.set(autoCopyOTP, forKey: "autoOTP") } }
     @Published var launchAtLogin: Bool {
         didSet {
@@ -144,6 +145,7 @@ final class AppModel: ObservableObject {
         connectionEnabled = d.bool(forKey: "connOn")
         mirrorMacNotifications = d.bool(forKey: "mirrorMac")
         autoCopyOTP = d.bool(forKey: "autoOTP")
+        autoAllowScreen = d.bool(forKey: "autoAllowScreen")
         launchAtLogin = (d.object(forKey: "loginService") as? Bool) ?? true
         try? SMAppService.mainApp.unregister()        // older builds also registered a login item, which opened the whole app next to the background copy
         hasConnectedBefore = d.bool(forKey: "paired")
@@ -623,12 +625,14 @@ final class AppModel: ObservableObject {
             PermissionGuide.show(.screen, model: self)
             return
         }
-        let a = NSAlert()
-        a.messageText = "Let your phone view and control this Mac?"
-        a.informativeText = "Your phone will see your screen and can move the mouse and type until you stop it. Only allow this if you just asked for it on your phone."
-        a.addButton(withTitle: "Allow"); a.addButton(withTitle: "Deny")
-        NSApp.activate(ignoringOtherApps: true)
-        guard a.runModal() == .alertFirstButtonReturn else { server.send(type: "mac_screen_denied", data: [:]); return }
+        if !autoAllowScreen {
+            let a = NSAlert()
+            a.messageText = "Let your phone view and control this Mac?"
+            a.informativeText = "Your phone will see your screen and can move the mouse and type until you stop it. Only allow this if you just asked for it on your phone."
+            a.addButton(withTitle: "Allow"); a.addButton(withTitle: "Deny")
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { server.send(type: "mac_screen_denied", data: [:]); return }
+        }
         _ = InputInjector.trusted(prompt: true)       // asks for Accessibility if missing
         let s = MacScreenShare(); share = s
         server.onCongestion = { [weak s] in s?.congestion() }

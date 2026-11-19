@@ -24,9 +24,17 @@ object Link {
     private lateinit var app: Context
     private val main = Handler(Looper.getMainLooper())
     private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
+
+    /** Every ping is a real packet through the tunnel, and on mobile data each one keeps the cellular radio (the biggest battery cost) awake.
+     *  So on mobile data the connection is only checked every 4 minutes; on Wi-Fi every minute. */
+    private fun pingSeconds(): Long {
+        val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        val wifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        return if (wifi) 60 else 240
+    }
 
     private var socket: WebSocket? = null
     private var channel: Channel? = null
@@ -109,7 +117,7 @@ object Link {
         }
         Net.ensureBridge(uri.host!!)
         val req = Request.Builder().url("ws://127.0.0.1:$local/").build()
-        socket = client.newWebSocket(req, object : WebSocketListener() {
+        socket = client.newBuilder().pingInterval(pingSeconds(), TimeUnit.SECONDS).build().newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 backoff = 1000
                 epoch++
@@ -132,7 +140,7 @@ object Link {
         if (!running) return
         pushState(State(Phase.OFFLINE, state.macName, "Retrying in ${backoff / 1000}s"))
         main.postDelayed({ connect() }, backoff)
-        backoff = min(backoff * 2, 30_000)
+        backoff = min(backoff * 2, 120_000)
     }
 
     @Synchronized

@@ -742,6 +742,10 @@ struct ScreenPage: View {
                     .font(.callout).foregroundStyle(Brand.dim).fixedSize(horizontal: false, vertical: true)
             }
             Divider().overlay(Brand.border)
+            ToggleRow(symbol: "checkmark.shield.fill", title: "Allow my phone without asking",
+                      detail: "When your paired phone asks to view and control this Mac, start right away instead of showing the Allow prompt. Only your paired phone can ask.",
+                      isOn: $m.autoAllowScreen)
+            Divider().overlay(Brand.border)
             PermissionRow(symbol: "record.circle", title: "Screen Recording", detail: "Lets your phone see this Mac", ok: m.screenAccess, action: { m.guide(.screen) })
             PermissionRow(symbol: "hand.tap.fill", title: "Accessibility", detail: "Lets your phone click and type", ok: m.axAccess, action: { m.guide(.accessibility) })
         }
